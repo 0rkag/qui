@@ -44,11 +44,13 @@ import {
   MoreVertical,
   Power,
   RefreshCw,
+  ScrollText,
   Trash2,
   XCircle
 } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
+import { InstanceLogDialog } from "./InstanceLogDialog"
 
 interface InstanceCardProps {
   instance: InstanceResponse
@@ -79,6 +81,7 @@ export function InstanceCard({
   const [testResult, setTestResult] = useState<{ success: boolean; message: string | undefined } | null>(null)
   const [incognitoMode, setIncognitoMode] = useIncognitoMode()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showLogDialog, setShowLogDialog] = useState(false)
   const displayUrl = instance.host
 
   const statusBadge = !instance.isActive
@@ -256,6 +259,13 @@ export function InstanceCard({
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Test Connection
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setShowLogDialog(true)}
+                  disabled={!instance.isActive || !instance.connected}
+                >
+                  <ScrollText className="mr-2 h-4 w-4" />
+                  View Logs
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => setShowDeleteDialog(true)}
@@ -368,6 +378,13 @@ export function InstanceCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <InstanceLogDialog
+        open={showLogDialog}
+        onOpenChange={setShowLogDialog}
+        instanceId={instance.id}
+        instanceName={instance.name}
+      />
     </Card>
   )
 }

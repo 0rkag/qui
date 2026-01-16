@@ -45,15 +45,13 @@ import (
 	"github.com/autobrr/qui/pkg/sqlite3store"
 )
 
-var (
-	// PolarOrgID Publisher credentials - set during build via ldflags
-	PolarOrgID = "" // Set via: -X main.PolarOrgID=your-org-id
-)
+// PolarOrgID Publisher credentials - set during build via ldflags
+var PolarOrgID = "" // Set via: -X main.PolarOrgID=your-org-id
 
 func main() {
 	config.InitDefaultLogger(buildinfo.Version)
 
-	var rootCmd = &cobra.Command{
+	rootCmd := &cobra.Command{
 		Use:   "qui",
 		Short: "A self-hosted qBittorrent WebUI alternative",
 		Long: `qui - A modern, self-hosted web interface for managing 
@@ -83,7 +81,7 @@ func RunServeCommand() *cobra.Command {
 		pprofFlag bool
 	)
 
-	var command = &cobra.Command{
+	command := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the server",
 	}
@@ -102,7 +100,7 @@ func RunServeCommand() *cobra.Command {
 }
 
 func RunVersionCommand(version string) *cobra.Command {
-	var command = &cobra.Command{
+	command := &cobra.Command{
 		Use:   "version",
 		Short: "Print the version number of qui",
 		Run: func(cmd *cobra.Command, args []string) {
@@ -373,7 +371,7 @@ If no --config-dir is specified, uses the OS-specific default location:
 }
 
 func RunUpdateCommand() *cobra.Command {
-	var command = &cobra.Command{
+	command := &cobra.Command{
 		Use:                   "update",
 		Short:                 "Update qui",
 		Long:                  `Update qui to the latest version.`,
@@ -762,17 +760,14 @@ func (app *Application) runServer() {
 	defer cancel()
 
 	if err := httpServer.Shutdown(ctx); err != nil {
-		//log.Fatal().Err(err).Msg("Server forced to shutdown")
+		// log.Fatal().Err(err).Msg("Server forced to shutdown")
 		log.Error().Err(err).Msg("got error during graceful http shutdown")
 
 		os.Exit(1)
 	}
 
-	//if err := srv.Shutdown(context.Background()); err != nil {
-	//	log.Error().Err(err).Msg("got error during graceful http shutdown")
-	//
-	//	os.Exit(1)
-	//}
+	// Release server resources (log stream manager, etc.)
+	httpServer.Close()
 
 	os.Exit(0)
 

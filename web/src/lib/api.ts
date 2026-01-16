@@ -2096,6 +2096,11 @@ class ApiClient {
   getLogStreamUrl(limit = 1000): string {
     return `${API_BASE}/logs/stream?limit=${limit}`
   }
+
+  // Get the SSE instance log stream URL for EventSource
+  getInstanceLogStreamUrl(instanceId: number, limit = 100): string {
+    return `${API_BASE}/instances/${instanceId}/logs/stream?limit=${limit}`
+  }
 }
 
 export const api = new ApiClient()

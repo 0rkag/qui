@@ -77,6 +77,7 @@ type Server struct {
 	orphanScanService                *orphanscan.Service
 	arrInstanceStore                 *models.ArrInstanceStore
 	arrService                       *arr.Service
+	instanceLogStreamManager         *qbittorrent.InstanceLogStreamManager
 }
 
 type Dependencies struct {
@@ -154,6 +155,7 @@ func NewServer(deps *Dependencies) *Server {
 		orphanScanService:                deps.OrphanScanService,
 		arrInstanceStore:                 deps.ArrInstanceStore,
 		arrService:                       deps.ArrService,
+		instanceLogStreamManager:         qbittorrent.NewInstanceLogStreamManager(deps.InstanceStore),
 	}
 
 	return &s
@@ -235,12 +237,19 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
 }
 
+// Close releases server resources. Should be called after Shutdown.
+func (s *Server) Close() {
+	if s.instanceLogStreamManager != nil {
+		s.instanceLogStreamManager.Close()
+	}
+}
+
 func (s *Server) Handler() (*chi.Mux, error) {
 	r := chi.NewRouter()
 
 	// Global middleware
 	r.Use(middleware.RequestID) // Must be before logger to capture request ID
-	//r.Use(middleware.Logger(s.logger))
+	// r.Use(middleware.Logger(s.logger))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RealIP)
 
@@ -296,6 +305,7 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	dashboardSettingsHandler := handlers.NewDashboardSettingsHandler(s.dashboardSettingsStore)
 	logExclusionsHandler := handlers.NewLogExclusionsHandler(s.logExclusionsStore)
 	logsHandler := handlers.NewLogsHandler(s.config)
+	instanceLogsHandler := handlers.NewInstanceLogsHandler(s.instanceLogStreamManager)
 
 	// Torznab/Jackett handler
 	var jackettHandler *handlers.JackettHandler
@@ -530,6 +540,9 @@ func (s *Server) Handler() (*chi.Mux, error) {
 							r.Delete("/", orphanScanHandler.CancelRun)
 						})
 					})
+
+					// qBittorrent instance log streaming
+					r.Get("/logs/stream", instanceLogsHandler.StreamLogs)
 				})
 			})
 
@@ -537,7 +550,6 @@ func (s *Server) Handler() (*chi.Mux, error) {
 			r.Route("/torrents", func(r chi.Router) {
 				r.Get("/cross-instance", torrentsHandler.ListCrossInstanceTorrents)
 			})
-
 		})
 	})
 
