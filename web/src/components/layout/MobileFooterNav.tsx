@@ -463,9 +463,9 @@ export function MobileFooterNav() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="View on GitHub"
-                className="h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
+                className="h-8 w-8 min-h-[44px] min-w-[44px] -m-1 flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-colors"
               >
-                <Github className="h-3.5 w-3.5" />
+                <Github className="h-4 w-4" />
               </a>
             </div>
             <DropdownMenuSeparator />
@@ -594,21 +594,32 @@ export function MobileFooterNav() {
                           {colors.variations && colors.variations.length > 0 && (
                             <div className="flex items-center gap-2 pl-1.5 mt-2">
                               <CornerDownRight className="h-4 w-4 text-muted-foreground" />
-                              <div className="flex gap-2">
+                              <div className="flex gap-2" role="group" aria-label="Color variations">
                                 {colors.variations.map((variation) => {
                                   const isSelected = currentVariation === variation.id
+                                  const handleSelect = async (e: React.MouseEvent | React.KeyboardEvent) => {
+                                    e.stopPropagation()
+                                    const success = await handleVariationSelect(theme.id, variation.id)
+                                    if (success) {
+                                      setShowThemeDialog(false)
+                                    }
+                                  }
                                   return (
                                     <div
                                       key={variation.id}
-                                      onClick={async (e) => {
-                                        e.stopPropagation()
-                                        const success = await handleVariationSelect(theme.id, variation.id)
-                                        if (success) {
-                                          setShowThemeDialog(false)
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-label={`${variation.id} color variation${isSelected ? " (selected)" : ""}`}
+                                      aria-pressed={isSelected}
+                                      onClick={handleSelect}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                          e.preventDefault()
+                                          handleSelect(e)
                                         }
                                       }}
                                       className={cn(
-                                        "w-8 h-8 rounded-full transition-all cursor-pointer",
+                                        "w-8 h-8 rounded-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                         isSelected
                                           ? "ring-2 ring-black dark:ring-white"
                                           : "ring-1 ring-black/10 dark:ring-white/10"

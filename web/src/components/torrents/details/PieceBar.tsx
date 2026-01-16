@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-import { memo, useEffect, useRef } from "react"
+import { memo, useEffect, useMemo, useRef } from "react"
 
 interface PieceBarProps {
   pieceStates: number[] | undefined
@@ -18,13 +18,23 @@ const PIECE_STATE = {
   DOWNLOADED: 2,
 } as const
 
-// Colors for piece states
-const COLORS = {
-  downloaded: "#22c55e",    // green-500
-  downloading: "#eab308",   // yellow-500
-  notDownloaded: "#3f3f46", // zinc-700
-  background: "#27272a",    // zinc-800 (slightly lighter than notDownloaded for contrast)
-} as const
+// Helper to get computed CSS variable value and convert to usable color
+function getThemeColor(cssVar: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback
+
+  const value = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim()
+  if (!value) return fallback
+
+  // Create a temporary element to compute the final color value
+  const temp = document.createElement("div")
+  temp.style.color = value
+  temp.style.display = "none"
+  document.body.appendChild(temp)
+  const computed = getComputedStyle(temp).color
+  document.body.removeChild(temp)
+
+  return computed || fallback
+}
 
 export const PieceBar = memo(function PieceBar({
   pieceStates,
@@ -34,6 +44,17 @@ export const PieceBar = memo(function PieceBar({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Calculate progress percentage for accessibility
+  const progressInfo = useMemo(() => {
+    if (!pieceStates || pieceStates.length === 0) {
+      return { percentage: isComplete ? 100 : 0, downloaded: 0, total: 0 }
+    }
+    const downloaded = pieceStates.filter(s => Number(s) === PIECE_STATE.DOWNLOADED).length
+    const downloading = pieceStates.filter(s => Number(s) === PIECE_STATE.DOWNLOADING).length
+    const percentage = Math.round((downloaded / pieceStates.length) * 100)
+    return { percentage, downloaded, downloading, total: pieceStates.length }
+  }, [pieceStates, isComplete])
+
   useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return
     if (!pieceStates || pieceStates.length === 0) return
@@ -42,6 +63,14 @@ export const PieceBar = memo(function PieceBar({
     const container = containerRef.current
     const ctx = canvas.getContext("2d")
     if (!ctx) return
+
+    // Get theme-aware colors (uses CSS variables)
+    const colors = {
+      downloaded: getThemeColor("--chart-3", "rgb(34, 197, 94)"),    // Green
+      downloading: getThemeColor("--chart-4", "rgb(234, 179, 8)"),   // Yellow
+      notDownloaded: getThemeColor("--muted", "rgb(63, 63, 70)"),    // Muted background
+      background: getThemeColor("--border", "rgb(39, 39, 42)"),      // Border color
+    }
 
     let rafId: number | undefined
 
@@ -62,7 +91,7 @@ export const PieceBar = memo(function PieceBar({
       ctx.scale(dpr, dpr)
 
       // Clear canvas with background
-      ctx.fillStyle = COLORS.background
+      ctx.fillStyle = colors.background
       ctx.beginPath()
       ctx.roundRect(0, 0, containerWidth, barHeight, 4)
       ctx.fill()
@@ -96,16 +125,16 @@ export const PieceBar = memo(function PieceBar({
         // Choose color based on priority
         let color: string
         if (hasDownloading) {
-          color = COLORS.downloading
+          color = colors.downloading
         } else if (hasDownloaded && !hasNotDownloaded) {
-          color = COLORS.downloaded
+          color = colors.downloaded
         } else if (hasNotDownloaded && !hasDownloaded) {
-          color = COLORS.notDownloaded
+          color = colors.notDownloaded
         } else if (hasDownloaded) {
           // Mixed bucket with both downloaded and not-downloaded - show downloaded
-          color = COLORS.downloaded
+          color = colors.downloaded
         } else {
-          color = COLORS.notDownloaded
+          color = colors.notDownloaded
         }
 
         // Draw bucket segment
@@ -140,10 +169,20 @@ export const PieceBar = memo(function PieceBar({
       view?.addEventListener("resize", scheduleDraw)
     }
 
+    // Listen for theme changes to redraw with new colors
+    const handleThemeChange = () => scheduleDraw()
+    window.addEventListener("themechange", handleThemeChange)
+
+    // Also listen for class changes on documentElement (dark mode toggle)
+    const classObserver = new MutationObserver(() => scheduleDraw())
+    classObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
+
     return () => {
       if (rafId != null) cancelAnimationFrame(rafId)
       observer?.disconnect()
+      classObserver.disconnect()
       view?.removeEventListener("resize", scheduleDraw)
+      window.removeEventListener("themechange", handleThemeChange)
     }
   }, [pieceStates])
 
@@ -151,8 +190,12 @@ export const PieceBar = memo(function PieceBar({
   if (isComplete && (!pieceStates || pieceStates.length === 0)) {
     return (
       <div
-        className="w-full h-3 rounded"
-        style={{ backgroundColor: COLORS.downloaded }}
+        role="progressbar"
+        aria-valuenow={100}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Download complete: 100%"
+        className="w-full h-3 rounded bg-chart-3"
       />
     )
   }
@@ -162,16 +205,35 @@ export const PieceBar = memo(function PieceBar({
     return (
       <div
         ref={containerRef}
-        className="w-full h-3 rounded bg-zinc-800 animate-pulse"
+        role="progressbar"
+        aria-valuenow={0}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Loading piece information..."
+        aria-busy={isLoading}
+        className="w-full h-3 rounded bg-muted motion-safe:animate-pulse"
       />
     )
   }
 
+  const ariaLabel = progressInfo.downloading && progressInfo.downloading > 0
+    ? `Download progress: ${progressInfo.percentage}% complete, ${progressInfo.downloading} pieces downloading`
+    : `Download progress: ${progressInfo.percentage}% complete (${progressInfo.downloaded} of ${progressInfo.total} pieces)`
+
   return (
-    <div ref={containerRef} className="w-full">
+    <div
+      ref={containerRef}
+      className="w-full"
+      role="progressbar"
+      aria-valuenow={progressInfo.percentage}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={ariaLabel}
+    >
       <canvas
         ref={canvasRef}
         className="w-full rounded"
+        aria-hidden="true"
       />
     </div>
   )

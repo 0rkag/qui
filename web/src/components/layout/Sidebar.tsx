@@ -239,7 +239,7 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-sidebar-foreground/40 hover:text-sidebar-foreground"
+            className="h-8 w-8 min-h-[44px] min-w-[44px] -m-2 text-sidebar-foreground/40 hover:text-sidebar-foreground"
             asChild
           >
             <a
@@ -248,7 +248,7 @@ export function Sidebar() {
               rel="noopener noreferrer"
               aria-label="View on GitHub"
             >
-              <Github className="h-3.5 w-3.5" />
+              <Github className="h-4 w-4" />
             </a>
           </Button>
         </div>

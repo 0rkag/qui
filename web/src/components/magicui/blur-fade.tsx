@@ -8,7 +8,8 @@
 import {
   AnimatePresence,
   motion,
-  useInView
+  useInView,
+  useReducedMotion
 } from "motion/react";
 import type {
   MotionProps,
@@ -51,6 +52,17 @@ export function BlurFade({
   const ref = useRef(null);
   const inViewResult = useInView(ref, { once: true, margin: inViewMargin });
   const isInView = !inView || inViewResult;
+  const prefersReducedMotion = useReducedMotion();
+
+  // Skip animations for users who prefer reduced motion
+  if (prefersReducedMotion) {
+    return (
+      <div ref={ref} className={className}>
+        {children}
+      </div>
+    );
+  }
+
   const defaultVariants: Variants = {
     hidden: {
       [direction === "left" || direction === "right" ? "x" : "y"]:

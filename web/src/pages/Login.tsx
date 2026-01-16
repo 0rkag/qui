@@ -133,22 +133,31 @@ export function Login() {
                     },
                   }}
                 >
-                  {(field) => (
-                    <div className="space-y-2">
-                      <Label htmlFor={field.name}>Username</Label>
-                      <Input
-                        id={field.name}
-                        type="text"
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="Enter your username"
-                      />
-                      {field.state.meta.isTouched && field.state.meta.errors[0] && (
-                        <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
-                      )}
-                    </div>
-                  )}
+                  {(field) => {
+                    const hasError = field.state.meta.isTouched && field.state.meta.errors[0]
+                    const errorId = `${field.name}-error`
+                    return (
+                      <div className="space-y-2">
+                        <Label htmlFor={field.name}>Username</Label>
+                        <Input
+                          id={field.name}
+                          type="text"
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                          placeholder="Enter your username"
+                          aria-invalid={hasError ? "true" : undefined}
+                          aria-describedby={hasError ? errorId : undefined}
+                          aria-required="true"
+                        />
+                        {hasError && (
+                          <p id={errorId} className="text-sm text-destructive" role="alert">
+                            {field.state.meta.errors[0]}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  }}
                 </form.Field>
 
                 <form.Field
@@ -160,22 +169,31 @@ export function Login() {
                     },
                   }}
                 >
-                  {(field) => (
-                    <div className="space-y-2">
-                      <Label htmlFor={field.name}>Password</Label>
-                      <Input
-                        id={field.name}
-                        type="password"
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="Enter your password"
-                      />
-                      {field.state.meta.isTouched && field.state.meta.errors[0] && (
-                        <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
-                      )}
-                    </div>
-                  )}
+                  {(field) => {
+                    const hasError = field.state.meta.isTouched && field.state.meta.errors[0]
+                    const errorId = `${field.name}-error`
+                    return (
+                      <div className="space-y-2">
+                        <Label htmlFor={field.name}>Password</Label>
+                        <Input
+                          id={field.name}
+                          type="password"
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(e) => field.handleChange(e.target.value)}
+                          placeholder="Enter your password"
+                          aria-invalid={hasError ? "true" : undefined}
+                          aria-describedby={hasError ? errorId : undefined}
+                          aria-required="true"
+                        />
+                        {hasError && (
+                          <p id={errorId} className="text-sm text-destructive" role="alert">
+                            {field.state.meta.errors[0]}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  }}
                 </form.Field>
 
                 <form.Field name="rememberMe">
@@ -197,7 +215,11 @@ export function Login() {
                 </form.Field>
 
                 {loginError && (
-                  <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md text-sm">
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md text-sm"
+                  >
                     {typeof loginError === "string"? loginError: loginError.message?.includes("Invalid credentials") || loginError.message?.includes("401") || loginError.message?.includes("403") ? "Invalid username or password": loginError.message || "Login failed. Please try again."}
                   </div>
                 )}
