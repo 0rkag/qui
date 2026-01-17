@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -2435,11 +2436,19 @@ interface MoveToInstanceDialogProps {
   onOpenChange: (open: boolean) => void
   hashCount: number
   currentInstanceId: number
+  currentInstanceCapabilities?: {
+    local: boolean
+    ssh: boolean
+  }
   instances: Array<{
     id: number
     name: string
     connected: boolean
     hasLocalFilesystemAccess: boolean
+    transferCapabilities?: {
+      local: boolean
+      ssh: boolean
+    }
   }>
   onConfirm: (targetInstanceId: number, options: {
     deleteFromSource: boolean
@@ -2449,11 +2458,40 @@ interface MoveToInstanceDialogProps {
   isPending?: boolean
 }
 
+// Helper to determine if transfer is possible between two instances
+function canTransferBetween(
+  source: { local: boolean; ssh: boolean },
+  target: { local: boolean; ssh: boolean }
+): boolean {
+  // Direct local transfer (both have local access)
+  if (source.local && target.local) return true
+  // Push via SSH (source local, target has SSH)
+  if (source.local && target.ssh) return true
+  // Pull via SSH (source has SSH, target local)
+  if (source.ssh && target.local) return true
+  // Remote-to-remote via SSH
+  if (source.ssh && target.ssh) return true
+  return false
+}
+
+// Helper to determine the transfer method that will be used
+function getTransferMethod(
+  source: { local: boolean; ssh: boolean },
+  target: { local: boolean; ssh: boolean }
+): "local" | "ssh" | null {
+  if (source.local && target.local) return "local"
+  if (source.local && target.ssh) return "ssh"
+  if (source.ssh && target.local) return "ssh"
+  if (source.ssh && target.ssh) return "ssh"
+  return null
+}
+
 export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
   open,
   onOpenChange,
   hashCount,
   currentInstanceId,
+  currentInstanceCapabilities,
   instances,
   onConfirm,
   isPending = false,
@@ -2464,18 +2502,45 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
   const [preserveTags, setPreserveTags] = useState(true)
   const wasOpen = useRef(false)
 
+  // Source capabilities (fallback to hasLocalFilesystemAccess for backwards compat)
+  const sourceCaps = useMemo(() => {
+    if (currentInstanceCapabilities) {
+      return currentInstanceCapabilities
+    }
+    // Fallback: find current instance in the list
+    const current = instances.find((i) => i.id === currentInstanceId)
+    return {
+      local: current?.hasLocalFilesystemAccess ?? false,
+      ssh: current?.transferCapabilities?.ssh ?? false,
+    }
+  }, [currentInstanceCapabilities, instances, currentInstanceId])
+
   // Filter instances to show only those that:
   // 1. Are not the current instance
-  // 2. Have local filesystem access
-  // 3. Are connected
+  // 2. Are connected
+  // 3. Can receive transfers from the source instance
   const availableInstances = useMemo(() => {
-    return instances.filter(
-      (instance) =>
-        instance.id !== currentInstanceId &&
-        instance.hasLocalFilesystemAccess &&
-        instance.connected
-    )
-  }, [instances, currentInstanceId])
+    return instances
+      .filter((instance) => {
+        if (instance.id === currentInstanceId) return false
+        if (!instance.connected) return false
+
+        // Get target capabilities (fallback for backwards compat)
+        const targetCaps = {
+          local: instance.transferCapabilities?.local ?? instance.hasLocalFilesystemAccess,
+          ssh: instance.transferCapabilities?.ssh ?? false,
+        }
+
+        return canTransferBetween(sourceCaps, targetCaps)
+      })
+      .map((instance) => ({
+        ...instance,
+        transferMethod: getTransferMethod(sourceCaps, {
+          local: instance.transferCapabilities?.local ?? instance.hasLocalFilesystemAccess,
+          ssh: instance.transferCapabilities?.ssh ?? false,
+        }),
+      }))
+  }, [instances, currentInstanceId, sourceCaps])
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -2519,7 +2584,7 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
         <DialogHeader>
           <DialogTitle>Move {hashCount} torrent(s) to Another Instance</DialogTitle>
           <DialogDescription>
-            Move the selected torrent(s) to another qBittorrent instance. Files will be linked (hardlink/reflink) to avoid duplicating disk space.
+            Move the selected torrent(s) to another qBittorrent instance. Files will be transferred via hardlinks, reflinks, or SSH depending on configuration.
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
@@ -2530,7 +2595,7 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
                 <div className="text-sm">
                   <p className="font-medium">No available instances</p>
                   <p className="text-muted-foreground mt-1">
-                    Other instances must be connected and have local filesystem access enabled to receive torrents.
+                    Other instances must be connected and have either local filesystem access or SSH configured to receive transfers.
                   </p>
                 </div>
               </div>
@@ -2549,7 +2614,14 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
                   <SelectContent>
                     {availableInstances.map((instance) => (
                       <SelectItem key={instance.id} value={instance.id.toString()}>
-                        {instance.name}
+                        <div className="flex items-center gap-2">
+                          <span>{instance.name}</span>
+                          {instance.transferMethod === "ssh" && (
+                            <Badge variant="outline" className="text-xs px-1.5 py-0">
+                              SSH
+                            </Badge>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -114,11 +114,16 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
   const canMoveToInstance = useMemo(() => {
     // Cannot move when Select All is active - requires loading all hashes
     if (isAllSelected) return false
-    if (!instance?.hasLocalFilesystemAccess) return false
-    // Check if there are other connected instances with local filesystem access
-    const otherInstances = instances?.filter(
-      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
-    )
+    // Check if source has any transfer capability
+    const sourceCaps = instance?.transferCapabilities
+    const hasSourceCapability = sourceCaps?.local || sourceCaps?.ssh || instance?.hasLocalFilesystemAccess
+    if (!hasSourceCapability) return false
+    // Check if there are other connected instances with transfer capabilities
+    const otherInstances = instances?.filter((i) => {
+      if (i.id === instanceId || !i.connected) return false
+      const targetCaps = i.transferCapabilities
+      return targetCaps?.local || targetCaps?.ssh || i.hasLocalFilesystemAccess
+    })
     return (otherInstances?.length ?? 0) > 0
   }, [instances, instance, instanceId, isAllSelected])
 
@@ -127,28 +132,49 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
     if (isAllSelected) {
       return "Cannot move when Select All is active - deselect and select individual torrents"
     }
-    if (!instance?.hasLocalFilesystemAccess) {
-      return "This instance does not have local filesystem access enabled"
+    // Check if source instance has any transfer capability
+    const sourceCaps = instance?.transferCapabilities
+    const hasSourceCapability = sourceCaps?.local || sourceCaps?.ssh || instance?.hasLocalFilesystemAccess
+    if (!hasSourceCapability) {
+      return "This instance does not have local filesystem access or SSH configured"
     }
-    const otherInstances = instances?.filter(
-      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
-    )
+    // Check if there are other instances that can receive transfers
+    const otherInstances = instances?.filter((i) => {
+      if (i.id === instanceId || !i.connected) return false
+      const targetCaps = i.transferCapabilities
+      const hasTargetCapability = targetCaps?.local || targetCaps?.ssh || i.hasLocalFilesystemAccess
+      return hasTargetCapability
+    })
     if ((otherInstances?.length ?? 0) === 0) {
-      return "No other connected instances with local filesystem access available"
+      return "No other connected instances with transfer capabilities available"
     }
     return undefined
   }, [instances, instance, instanceId, isAllSelected])
 
   // Available target instances for move dialog
   const availableTargetInstances = useMemo(() => {
-    return (instances ?? [])
-      .filter((i) => i.id !== instanceId)
-      .map((i) => ({
-        id: i.id,
-        name: i.name,
-        connected: i.connected,
-        hasLocalFilesystemAccess: i.hasLocalFilesystemAccess,
-      }))
+    return (instances ?? []).map((i) => ({
+      id: i.id,
+      name: i.name,
+      connected: i.connected,
+      hasLocalFilesystemAccess: i.hasLocalFilesystemAccess,
+      transferCapabilities: i.transferCapabilities,
+    }))
+  }, [instances])
+
+  // Current instance capabilities for move dialog
+  const currentInstanceCapabilities = useMemo(() => {
+    const current = instances?.find((i) => i.id === instanceId)
+    if (!current?.transferCapabilities) {
+      return {
+        local: current?.hasLocalFilesystemAccess ?? false,
+        ssh: false,
+      }
+    }
+    return {
+      local: current.transferCapabilities.local,
+      ssh: current.transferCapabilities.ssh,
+    }
   }, [instances, instanceId])
 
   // Use the shared torrent actions hook
@@ -880,6 +906,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
         onOpenChange={setShowMoveToInstanceDialog}
         hashCount={totalSelectionCount || selectedHashes.length}
         currentInstanceId={safeInstanceId}
+        currentInstanceCapabilities={currentInstanceCapabilities}
         instances={availableTargetInstances}
         onConfirm={handleMoveToInstance}
         isPending={isPending}

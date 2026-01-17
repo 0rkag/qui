@@ -20,6 +20,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation } from "@tanstack/react-router"
 import {
   Archive,
+  ArrowLeftRight,
   Copyright,
   GitBranch,
   Github,
@@ -62,6 +63,11 @@ const navigation: NavItem[] = [
     title: "Automations",
     href: "/automations",
     icon: Zap,
+  },
+  {
+    title: "Transfers",
+    href: "/transfers",
+    icon: ArrowLeftRight,
   },
   {
     title: "Backups",

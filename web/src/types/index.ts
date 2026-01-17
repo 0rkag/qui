@@ -16,6 +16,16 @@ export interface AuthResponse {
   message?: string
 }
 
+// TransferCapabilities indicates which transfer methods an instance supports
+export interface TransferCapabilities {
+  // Local indicates the instance has local filesystem access (QUI can directly access files)
+  local: boolean
+  // SSH indicates an SSH connection is configured and enabled for this instance
+  ssh: boolean
+  // FTP indicates an FTP connection is configured and enabled (future)
+  ftp: boolean
+}
+
 export interface Instance {
   id: number
   name: string
@@ -35,6 +45,7 @@ export interface Instance {
   sortOrder: number
   isActive: boolean
   reannounceSettings: InstanceReannounceSettings
+  transferCapabilities?: TransferCapabilities
 }
 
 export interface InstanceFormData {

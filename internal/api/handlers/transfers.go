@@ -4,7 +4,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -50,9 +49,7 @@ type MovePayload struct {
 // Create handles POST /api/transfers
 func (h *TransfersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var payload CreateTransferPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Warn().Err(err).Msg("transfers: failed to decode create payload")
-		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+	if !DecodeJSONBody(w, r, &payload) {
 		return
 	}
 
@@ -209,9 +206,7 @@ func (h *TransfersHandler) MoveTorrent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var payload MovePayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Warn().Err(err).Msg("transfers: failed to decode move payload")
-		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+	if !DecodeJSONBody(w, r, &payload) {
 		return
 	}
 

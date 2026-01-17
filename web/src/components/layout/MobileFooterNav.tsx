@@ -42,6 +42,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation } from "@tanstack/react-router"
 import {
   Archive,
+  ArrowLeftRight,
   Check,
   Copyright,
   CornerDownRight,
@@ -410,6 +411,15 @@ export function MobileFooterNav() {
               >
                 <Zap className="h-4 w-4" />
                 Automations
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link
+                to="/transfers"
+                className="flex items-center gap-2"
+              >
+                <ArrowLeftRight className="h-4 w-4" />
+                Transfers
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>

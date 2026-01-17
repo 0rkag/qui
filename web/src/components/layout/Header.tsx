@@ -532,20 +532,20 @@ export function Header({
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link
-                  to="/backups"
-                  className="flex cursor-pointer"
-                >
-                  <Archive className="mr-2 h-4 w-4" />
-                  Backups
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link
                   to="/transfers"
                   className="flex cursor-pointer"
                 >
                   <ArrowLeftRight className="mr-2 h-4 w-4" />
                   Transfers
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link
+                  to="/backups"
+                  className="flex cursor-pointer"
+                >
+                  <Archive className="mr-2 h-4 w-4" />
+                  Backups
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>

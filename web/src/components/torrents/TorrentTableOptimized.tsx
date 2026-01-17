@@ -612,18 +612,23 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
   const { instances } = useInstances()
   const instance = useMemo(() => instances?.find(i => i.id === instanceId), [instances, instanceId])
 
-  // Eligible target instances for move operation (connected with local filesystem access)
+  // Eligible target instances for move operation (connected with transfer capabilities)
   const eligibleTargetInstances = useMemo(() => {
-    return (instances ?? []).filter(
-      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
-    )
+    return (instances ?? []).filter((i) => {
+      if (i.id === instanceId || !i.connected) return false
+      const targetCaps = i.transferCapabilities
+      return targetCaps?.local || targetCaps?.ssh || i.hasLocalFilesystemAccess
+    })
   }, [instances, instanceId])
 
   // Check if move to instance is available and why not
   const canMoveToInstance = useMemo(() => {
     // Cannot move when Select All is active - requires loading all hashes
     if (isAllSelected) return false
-    if (!instance?.hasLocalFilesystemAccess) return false
+    // Check if source has any transfer capability
+    const sourceCaps = instance?.transferCapabilities
+    const hasSourceCapability = sourceCaps?.local || sourceCaps?.ssh || instance?.hasLocalFilesystemAccess
+    if (!hasSourceCapability) return false
     return eligibleTargetInstances.length > 0
   }, [instance, isAllSelected, eligibleTargetInstances])
 
@@ -632,25 +637,42 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
     if (isAllSelected) {
       return "Cannot move when Select All is active - deselect and select individual torrents"
     }
-    if (!instance?.hasLocalFilesystemAccess) {
-      return "This instance does not have local filesystem access enabled"
+    // Check if source has any transfer capability
+    const sourceCaps = instance?.transferCapabilities
+    const hasSourceCapability = sourceCaps?.local || sourceCaps?.ssh || instance?.hasLocalFilesystemAccess
+    if (!hasSourceCapability) {
+      return "This instance does not have local filesystem access or SSH configured"
     }
     if (eligibleTargetInstances.length === 0) {
-      return "No other connected instances with local filesystem access available"
+      return "No other connected instances with transfer capabilities available"
     }
     return undefined
   }, [instance, isAllSelected, eligibleTargetInstances])
 
   // Available target instances for move dialog
   const availableTargetInstances = useMemo(() => {
-    return (instances ?? [])
-      .filter((i) => i.id !== instanceId)
-      .map((i) => ({
-        id: i.id,
-        name: i.name,
-        connected: i.connected,
-        hasLocalFilesystemAccess: i.hasLocalFilesystemAccess,
-      }))
+    return (instances ?? []).map((i) => ({
+      id: i.id,
+      name: i.name,
+      connected: i.connected,
+      hasLocalFilesystemAccess: i.hasLocalFilesystemAccess,
+      transferCapabilities: i.transferCapabilities,
+    }))
+  }, [instances])
+
+  // Current instance capabilities for move dialog
+  const currentInstanceCapabilities = useMemo(() => {
+    const current = instances?.find((i) => i.id === instanceId)
+    if (!current?.transferCapabilities) {
+      return {
+        local: current?.hasLocalFilesystemAccess ?? false,
+        ssh: false,
+      }
+    }
+    return {
+      local: current.transferCapabilities.local,
+      ssh: current.transferCapabilities.ssh,
+    }
   }, [instances, instanceId])
 
   // Desktop view mode state (separate from mobile view mode)
@@ -2963,6 +2985,7 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
           onOpenChange={setShowMoveToInstanceDialog}
           hashCount={isAllSelected ? effectiveSelectionCount : contextHashes.length}
           currentInstanceId={instanceId}
+          currentInstanceCapabilities={currentInstanceCapabilities}
           instances={availableTargetInstances}
           onConfirm={handleMoveToInstance}
           isPending={isPending}

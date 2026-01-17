@@ -4,9 +4,10 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 
@@ -65,6 +66,40 @@ type ReorderPayload struct {
 	Orders map[int64]int `json:"orders"` // mapping ID -> sort order
 }
 
+// validateMappingPath validates a path mapping path for security issues.
+// Returns an error message if validation fails, empty string if valid.
+func validateMappingPath(path, fieldName string) string {
+	if path == "" {
+		return fieldName + " is required"
+	}
+
+	// Path must be absolute
+	if !filepath.IsAbs(path) {
+		return fieldName + " must be an absolute path"
+	}
+
+	// Clean the path and check for traversal attempts
+	cleaned := filepath.Clean(path)
+
+	// Check for path traversal - the cleaned path should not differ
+	// in a way that indicates traversal was attempted
+	if strings.Contains(path, "..") {
+		return fieldName + " must not contain path traversal sequences"
+	}
+
+	// After cleaning, the path should still be valid and not escape root
+	if cleaned == "." || cleaned == ".." {
+		return fieldName + " is not a valid path"
+	}
+
+	// Ensure cleaned path is still absolute (cleaning didn't break it)
+	if !filepath.IsAbs(cleaned) {
+		return fieldName + " is not a valid absolute path"
+	}
+
+	return ""
+}
+
 // List handles GET /api/instances/{instanceID}/path-mappings
 func (h *InstancePathMappingsHandler) List(w http.ResponseWriter, r *http.Request) {
 	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
@@ -94,9 +129,17 @@ func (h *InstancePathMappingsHandler) Create(w http.ResponseWriter, r *http.Requ
 	}
 
 	var payload CreatePathMappingPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Warn().Err(err).Msg("path-mappings: failed to decode create payload")
-		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+	if !DecodeJSONBody(w, r, &payload) {
+		return
+	}
+
+	// Validate paths
+	if errMsg := validateMappingPath(payload.InstancePath, "Instance path"); errMsg != "" {
+		RespondError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+	if errMsg := validateMappingPath(payload.CanonicalPath, "Canonical path"); errMsg != "" {
+		RespondError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -105,10 +148,11 @@ func (h *InstancePathMappingsHandler) Create(w http.ResponseWriter, r *http.Requ
 		enabled = *payload.Enabled
 	}
 
+	// Clean paths before storing
 	mapping := &models.InstancePathMapping{
 		InstanceID:    instanceID,
-		InstancePath:  payload.InstancePath,
-		CanonicalPath: payload.CanonicalPath,
+		InstancePath:  filepath.Clean(payload.InstancePath),
+		CanonicalPath: filepath.Clean(payload.CanonicalPath),
 		Enabled:       enabled,
 		Description:   payload.Description,
 		SortOrder:     payload.SortOrder,
@@ -162,9 +206,17 @@ func (h *InstancePathMappingsHandler) Update(w http.ResponseWriter, r *http.Requ
 	}
 
 	var payload UpdatePathMappingPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Warn().Err(err).Msg("path-mappings: failed to decode update payload")
-		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+	if !DecodeJSONBody(w, r, &payload) {
+		return
+	}
+
+	// Validate paths
+	if errMsg := validateMappingPath(payload.InstancePath, "Instance path"); errMsg != "" {
+		RespondError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+	if errMsg := validateMappingPath(payload.CanonicalPath, "Canonical path"); errMsg != "" {
+		RespondError(w, http.StatusBadRequest, errMsg)
 		return
 	}
 
@@ -186,9 +238,9 @@ func (h *InstancePathMappingsHandler) Update(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Update fields
-	existing.InstancePath = payload.InstancePath
-	existing.CanonicalPath = payload.CanonicalPath
+	// Update fields (clean paths before storing)
+	existing.InstancePath = filepath.Clean(payload.InstancePath)
+	existing.CanonicalPath = filepath.Clean(payload.CanonicalPath)
 	existing.Description = payload.Description
 	existing.SortOrder = payload.SortOrder
 	if payload.Enabled != nil {
@@ -262,9 +314,7 @@ func (h *InstancePathMappingsHandler) Reorder(w http.ResponseWriter, r *http.Req
 	}
 
 	var payload ReorderPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Warn().Err(err).Msg("path-mappings: failed to decode reorder payload")
-		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+	if !DecodeJSONBody(w, r, &payload) {
 		return
 	}
 
@@ -308,9 +358,7 @@ func (h *InstancePathMappingsHandler) TestPath(w http.ResponseWriter, r *http.Re
 	}
 
 	var payload TestPathPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Warn().Err(err).Msg("path-mappings: failed to decode test payload")
-		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+	if !DecodeJSONBody(w, r, &payload) {
 		return
 	}
 

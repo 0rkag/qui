@@ -5,7 +5,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -29,9 +28,10 @@ type InstancesHandler struct {
 	clientPool      *internalqbittorrent.ClientPool
 	syncManager     *internalqbittorrent.SyncManager
 	reannounceSvc   *reannounce.Service
+	connectionStore *models.InstanceConnectionStore
 }
 
-func NewInstancesHandler(instanceStore *models.InstanceStore, reannounceStore *models.InstanceReannounceStore, reannounceCache *reannounce.SettingsCache, clientPool *internalqbittorrent.ClientPool, syncManager *internalqbittorrent.SyncManager, svc *reannounce.Service) *InstancesHandler {
+func NewInstancesHandler(instanceStore *models.InstanceStore, reannounceStore *models.InstanceReannounceStore, reannounceCache *reannounce.SettingsCache, clientPool *internalqbittorrent.ClientPool, syncManager *internalqbittorrent.SyncManager, svc *reannounce.Service, connectionStore *models.InstanceConnectionStore) *InstancesHandler {
 	return &InstancesHandler{
 		instanceStore:   instanceStore,
 		reannounceStore: reannounceStore,
@@ -39,6 +39,7 @@ func NewInstancesHandler(instanceStore *models.InstanceStore, reannounceStore *m
 		clientPool:      clientPool,
 		syncManager:     syncManager,
 		reannounceSvc:   svc,
+		connectionStore: connectionStore,
 	}
 }
 
@@ -195,6 +196,25 @@ func (h *InstancesHandler) buildInstanceResponsesParallel(ctx context.Context, i
 	return responses
 }
 
+// getTransferCapabilities determines which transfer methods an instance supports.
+func (h *InstancesHandler) getTransferCapabilities(ctx context.Context, instance *models.Instance) TransferCapabilities {
+	caps := TransferCapabilities{
+		Local: instance.HasLocalFilesystemAccess,
+	}
+
+	// Check for SSH connection if we have a connection store
+	if h.connectionStore != nil {
+		sshConn, err := h.connectionStore.GetSSHByInstance(ctx, instance.ID)
+		if err == nil && sshConn != nil && sshConn.Enabled {
+			caps.SSH = true
+		}
+	}
+
+	// FTP support can be added here in the future
+
+	return caps
+}
+
 // buildInstanceResponse creates a consistent response for an instance
 func (h *InstancesHandler) buildInstanceResponse(ctx context.Context, instance *models.Instance) InstanceResponse {
 	// Use cached connection status only, do not test connection synchronously
@@ -231,6 +251,7 @@ func (h *InstancesHandler) buildInstanceResponse(ctx context.Context, instance *
 		ConnectionStatus:         connectionStatus,
 		SortOrder:                instance.SortOrder,
 		IsActive:                 instance.IsActive,
+		TransferCapabilities:     h.getTransferCapabilities(ctx, instance),
 	}
 
 	response.ReannounceSettings = h.getReannounceSettingsPayload(ctx, instance.ID)
@@ -255,6 +276,10 @@ func (h *InstancesHandler) buildQuickInstanceResponse(instance *models.Instance)
 	if !instance.IsActive {
 		connectionStatus = "disabled"
 	}
+
+	// Use background context for quick capability check
+	ctx := context.Background()
+
 	return InstanceResponse{
 		ID:                       instance.ID,
 		Name:                     instance.Name,
@@ -273,6 +298,7 @@ func (h *InstancesHandler) buildQuickInstanceResponse(instance *models.Instance)
 		SortOrder:                instance.SortOrder,
 		IsActive:                 instance.IsActive,
 		ConnectionStatus:         connectionStatus,
+		TransferCapabilities:     h.getTransferCapabilities(ctx, instance),
 	}
 }
 
@@ -372,6 +398,17 @@ type UpdateInstanceStatusRequest struct {
 	IsActive bool `json:"isActive"`
 }
 
+// TransferCapabilities indicates which transfer methods an instance supports.
+// This determines whether transfers can be made between instances.
+type TransferCapabilities struct {
+	// Local indicates the instance has local filesystem access (QUI can directly access files)
+	Local bool `json:"local"`
+	// SSH indicates an SSH connection is configured and enabled for this instance
+	SSH bool `json:"ssh"`
+	// FTP indicates an FTP connection is configured and enabled (future)
+	FTP bool `json:"ftp"`
+}
+
 // InstanceResponse represents an instance in API responses
 type InstanceResponse struct {
 	ID                       int                               `json:"id"`
@@ -393,6 +430,7 @@ type InstanceResponse struct {
 	SortOrder                int                               `json:"sortOrder"`
 	IsActive                 bool                              `json:"isActive"`
 	ReannounceSettings       InstanceReannounceSettingsPayload `json:"reannounceSettings"`
+	TransferCapabilities     TransferCapabilities              `json:"transferCapabilities"`
 }
 
 // InstanceReannounceSettingsPayload carries tracker monitoring config.
@@ -494,8 +532,7 @@ func (h *InstancesHandler) UpdateInstanceOrder(w http.ResponseWriter, r *http.Re
 		InstanceIDs []int `json:"instanceIds"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid request body")
+	if !DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -554,8 +591,7 @@ func (h *InstancesHandler) UpdateInstanceOrder(w http.ResponseWriter, r *http.Re
 // CreateInstance creates a new instance
 func (h *InstancesHandler) CreateInstance(w http.ResponseWriter, r *http.Request) {
 	var req CreateInstanceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid request body")
+	if !DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -599,8 +635,7 @@ func (h *InstancesHandler) UpdateInstance(w http.ResponseWriter, r *http.Request
 	}
 
 	var req UpdateInstanceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid request body")
+	if !DecodeJSONBody(w, r, &req) {
 		return
 	}
 
@@ -762,8 +797,7 @@ func (h *InstancesHandler) UpdateInstanceStatus(w http.ResponseWriter, r *http.R
 	}
 
 	var req UpdateInstanceStatusRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid request body")
+	if !DecodeJSONBody(w, r, &req) {
 		return
 	}
 

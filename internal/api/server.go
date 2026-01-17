@@ -271,15 +271,47 @@ func (s *Server) Handler() (*chi.Mux, error) {
 		r.Use(compressor)
 	}
 
-	// CORS - mirror autobrr's permissive credentials setup
-	corsMiddleware := cors.New(cors.Options{
+	// CORS configuration
+	corsOpts := cors.Options{
 		AllowCredentials: true,
 		AllowedMethods:   []string{"HEAD", "OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-API-Key", "X-Requested-With"},
-		AllowOriginFunc:  func(origin string) bool { return true },
 		MaxAge:           300,
 		Debug:            false,
-	})
+	}
+
+	// Configure allowed origins based on configuration
+	// If CORSAllowedOrigins is empty, only same-origin requests are allowed (secure default)
+	// If CORSAllowedOrigins contains "*", all origins are allowed (development only)
+	// Otherwise, only the specified origins are allowed
+	if len(s.config.Config.CORSAllowedOrigins) == 0 {
+		// Same-origin only: validate that origin matches the request host
+		corsOpts.AllowOriginRequestFunc = func(r *http.Request, origin string) bool {
+			// If no origin header, it's a same-origin request
+			if origin == "" {
+				return true
+			}
+			// For same-origin policy, the origin must match the Host header
+			requestHost := r.Host
+			if requestHost == "" {
+				return false
+			}
+			// Parse the origin to extract the host
+			originHost := extractHostFromOrigin(origin)
+			// Extract just the hostname without port for comparison
+			requestHostname := extractHostname(requestHost)
+			return originHost == requestHostname
+		}
+	} else if len(s.config.Config.CORSAllowedOrigins) == 1 && s.config.Config.CORSAllowedOrigins[0] == "*" {
+		// Allow all origins (development mode - logs a warning)
+		log.Warn().Msg("CORS configured to allow all origins - this is not recommended for production")
+		corsOpts.AllowOriginFunc = func(origin string) bool { return true }
+	} else {
+		// Allow only specified origins
+		corsOpts.AllowedOrigins = s.config.Config.CORSAllowedOrigins
+	}
+
+	corsMiddleware := cors.New(corsOpts)
 	r.Use(corsMiddleware.Handler)
 
 	// Session middleware - must be added before any session-dependent middleware
@@ -291,7 +323,7 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	if err != nil {
 		return nil, err
 	}
-	instancesHandler := handlers.NewInstancesHandler(s.instanceStore, s.instanceReannounce, s.reannounceCache, s.clientPool, s.syncManager, s.reannounceService)
+	instancesHandler := handlers.NewInstancesHandler(s.instanceStore, s.instanceReannounce, s.reannounceCache, s.clientPool, s.syncManager, s.reannounceService, s.instanceConnectionStore)
 	torrentsHandler := handlers.NewTorrentsHandler(s.syncManager, s.jackettService)
 	preferencesHandler := handlers.NewPreferencesHandler(s.syncManager)
 	clientAPIKeysHandler := handlers.NewClientAPIKeysHandler(s.clientAPIKeyStore, s.instanceStore, s.config.Config.BaseURL)
@@ -715,4 +747,38 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	}
 
 	return r, nil
+}
+
+// extractHostFromOrigin extracts the hostname from an origin URL (e.g., "https://example.com:8080" -> "example.com")
+func extractHostFromOrigin(origin string) string {
+	// Remove protocol prefix
+	host := origin
+	if idx := strings.Index(host, "://"); idx != -1 {
+		host = host[idx+3:]
+	}
+	// Remove path if present
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	// Remove port if present
+	return extractHostname(host)
+}
+
+// extractHostname extracts just the hostname from a host:port string
+func extractHostname(hostport string) string {
+	// Handle IPv6 addresses like [::1]:8080
+	if len(hostport) > 0 && hostport[0] == '[' {
+		if idx := strings.Index(hostport, "]"); idx != -1 {
+			return hostport[1:idx]
+		}
+		return hostport
+	}
+	// Handle regular host:port
+	if idx := strings.LastIndex(hostport, ":"); idx != -1 {
+		// Make sure it's not an IPv6 address without brackets
+		if strings.Count(hostport, ":") == 1 {
+			return hostport[:idx]
+		}
+	}
+	return hostport
 }

@@ -115,6 +115,13 @@ func (c *AppConfig) defaults() {
 	c.viper.SetDefault("metricsPort", 9074)
 	c.viper.SetDefault("metricsBasicAuthUsers", "")
 	c.viper.SetDefault("externalProgramAllowList", []string{})
+	c.viper.SetDefault("corsAllowedOrigins", []string{}) // Empty means same-origin only (secure default)
+
+	// Timeout defaults (in seconds)
+	c.viper.SetDefault("timeouts.apiRequest", 15)
+	c.viper.SetDefault("timeouts.clientConnection", 15)
+	c.viper.SetDefault("timeouts.healthCheck", 10)
+	c.viper.SetDefault("timeouts.backgroundTask", 30)
 
 	// OIDC defaults
 	c.viper.SetDefault("oidcEnabled", false)
@@ -200,6 +207,9 @@ func (c *AppConfig) loadFromEnv() {
 	c.viper.BindEnv("metricsPort", envPrefix+"METRICS_PORT")
 	c.viper.BindEnv("metricsBasicAuthUsers", envPrefix+"METRICS_BASIC_AUTH_USERS")
 
+	// CORS configuration
+	c.viper.BindEnv("corsAllowedOrigins", envPrefix+"CORS_ALLOWED_ORIGINS")
+
 	// OIDC environment variables
 	c.viper.BindEnv("oidcEnabled", envPrefix+"OIDC_ENABLED")
 	c.viper.BindEnv("oidcIssuer", envPrefix+"OIDC_ISSUER")
@@ -261,6 +271,15 @@ func (c *AppConfig) hydrateConfigFromViper() {
 	c.Config.MetricsBasicAuthUsers = c.viper.GetString("metricsBasicAuthUsers")
 
 	c.Config.ExternalProgramAllowList = c.viper.GetStringSlice("externalProgramAllowList")
+	c.Config.CORSAllowedOrigins = c.viper.GetStringSlice("corsAllowedOrigins")
+
+	// Timeouts configuration
+	c.Config.Timeouts = domain.TimeoutConfig{
+		APIRequest:       c.viper.GetInt("timeouts.apiRequest"),
+		ClientConnection: c.viper.GetInt("timeouts.clientConnection"),
+		HealthCheck:      c.viper.GetInt("timeouts.healthCheck"),
+		BackgroundTask:   c.viper.GetInt("timeouts.backgroundTask"),
+	}
 
 	c.Config.OIDCEnabled = c.viper.GetBool("oidcEnabled")
 	c.Config.OIDCIssuer = c.viper.GetString("oidcIssuer")
