@@ -186,7 +186,7 @@ export function Header({
             <DropdownMenuTrigger asChild>
               <button
                 className={cn(
-                  "group flex items-center gap-2 pl-2 sm:pl-0 text-xl font-semibold transition-all duration-300 hover:opacity-90 rounded-sm px-1 -mx-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "group flex items-center gap-2 pl-2 sm:pl-0 text-xl font-semibold transition-opacity duration-300 hover:opacity-90 rounded-sm px-1 -mx-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   "lg:hidden", // Hidden on desktop by default
                   sidebarCollapsed && "lg:flex", // Visible on desktop when sidebar collapsed
                   !shouldShowQuiOnMobile && "hidden sm:flex" // Hide on mobile when on instance routes
@@ -244,7 +244,7 @@ export function Header({
           </DropdownMenu>
         ) : (
           <h1 className={cn(
-            "flex items-center gap-2 pl-2 sm:pl-0 text-xl font-semibold transition-all duration-300",
+            "flex items-center gap-2 pl-2 sm:pl-0 text-xl font-semibold",
             "lg:hidden", // Hidden on desktop by default
             sidebarCollapsed && "lg:flex", // Visible on desktop when sidebar collapsed
             !shouldShowQuiOnMobile && "hidden sm:flex" // Hide on mobile when on instance routes
@@ -264,22 +264,27 @@ export function Header({
       </div>
 
       {/* Navigation buttons - visible when sidebar is hidden */}
-      <div className={cn(
-        "flex items-center gap-1 order-2 lg:order-none",
-        innerHeight,
-        sidebarCollapsed ? "lg:flex lg:ml-2" : "lg:hidden"
-      )}>
-        {/* Main navigation items */}
+      <nav
+        className={cn(
+          "flex items-center gap-1 order-2 lg:order-none",
+          innerHeight,
+          sidebarCollapsed ? "lg:flex lg:ml-2" : "lg:hidden"
+        )}
+        aria-label="Main navigation"
+      >
+        {/* Main navigation items - 44px minimum touch targets for accessibility */}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant={location.pathname === "/dashboard" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 min-h-[44px] min-w-[44px]"
+              aria-label="Dashboard"
+              aria-current={location.pathname === "/dashboard" ? "page" : undefined}
               asChild
             >
               <Link to="/dashboard">
-                <Home className="h-4 w-4" />
+                <Home className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           </TooltipTrigger>
@@ -290,11 +295,13 @@ export function Header({
             <Button
               variant={location.pathname === "/search" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 min-h-[44px] min-w-[44px]"
+              aria-label="Search"
+              aria-current={location.pathname === "/search" ? "page" : undefined}
               asChild
             >
               <Link to="/search">
-                <Search className="h-4 w-4" />
+                <Search className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           </TooltipTrigger>
@@ -305,11 +312,13 @@ export function Header({
             <Button
               variant={location.pathname === "/cross-seed" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 min-h-[44px] min-w-[44px]"
+              aria-label="Cross-Seed"
+              aria-current={location.pathname === "/cross-seed" ? "page" : undefined}
               asChild
             >
               <Link to="/cross-seed">
-                <GitBranch className="h-4 w-4" />
+                <GitBranch className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           </TooltipTrigger>
@@ -320,11 +329,13 @@ export function Header({
             <Button
               variant={location.pathname === "/automations" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 min-h-[44px] min-w-[44px]"
+              aria-label="Automations"
+              aria-current={location.pathname === "/automations" ? "page" : undefined}
               asChild
             >
               <Link to="/automations">
-                <Zap className="h-4 w-4" />
+                <Zap className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           </TooltipTrigger>
@@ -335,11 +346,13 @@ export function Header({
             <Button
               variant={location.pathname === "/backups" ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 min-h-[44px] min-w-[44px]"
+              aria-label="Backups"
+              aria-current={location.pathname === "/backups" ? "page" : undefined}
               asChild
             >
               <Link to="/backups">
-                <Archive className="h-4 w-4" />
+                <Archive className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           </TooltipTrigger>
@@ -350,17 +363,19 @@ export function Header({
             <Button
               variant={location.pathname.startsWith("/settings") ? "secondary" : "ghost"}
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 min-h-[44px] min-w-[44px]"
+              aria-label="Settings"
+              aria-current={location.pathname.startsWith("/settings") ? "page" : undefined}
               asChild
             >
               <Link to="/settings">
-                <Settings className="h-4 w-4" />
+                <Settings className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           </TooltipTrigger>
           <TooltipContent>Settings</TooltipContent>
         </Tooltip>
-      </div>
+      </nav>
       {/* Management Bar - only shows when torrents selected on instance routes */}
       {shouldShowInstanceControls && (selectedHashes.length > 0 || isAllSelected) && (
         <div className="sm:w-full sm:basis-full lg:basis-auto lg:w-auto sm:order-5 lg:order-none flex justify-center lg:justify-start lg:ml-2 animate-in fade-in duration-400 ease-out motion-reduce:animate-none motion-reduce:duration-0">
@@ -387,10 +402,18 @@ export function Header({
             {/* Actions dropdown menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8 relative">
-                  <EllipsisVertical className="h-4 w-4" />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 min-h-[44px] min-w-[44px] relative"
+                  aria-label={activeTaskCount > 0 ? `Actions menu, ${activeTaskCount} active task${activeTaskCount !== 1 ? 's' : ''}` : "Actions menu"}
+                >
+                  <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
                   {activeTaskCount > 0 && (
-                    <span className="absolute -top-1 -right-1 h-4 min-w-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                    <span
+                      className="absolute -top-1 -right-1 h-4 min-w-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium"
+                      aria-hidden="true"
+                    >
                       {activeTaskCount}
                     </span>
                   )}
@@ -444,9 +467,9 @@ export function Header({
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-            {/* Search bar */}
-            <div className="relative flex-1 min-w-0 md:w-62 md:flex-initial md:focus-within:w-full max-w-md transition-[width] duration-100 ease-out will-change-[width]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none transition-opacity duration-300" />
+            {/* Search bar - will-change applied via focus-within to avoid permanent compositor layer */}
+            <div className="relative flex-1 min-w-0 md:w-62 md:flex-initial md:focus-within:w-full md:focus-within:will-change-[width] max-w-md transition-[width] duration-100 ease-out">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" aria-hidden="true" />
               <Input
                 ref={searchInputRef}
                 placeholder={isGlobSearch ? "Glob pattern..." : `Search torrents... (${shortcutKey})`}
@@ -475,14 +498,15 @@ export function Header({
                 className={`w-full pl-9 pr-16 transition-[box-shadow,border-color] duration-200 text-xs ${searchValue ? "ring-1 ring-primary/50" : ""
                   } ${isGlobSearch ? "ring-1 ring-primary" : ""}`}
               />
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                 {/* Clear search button */}
                 {searchValue && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        className="p-1 hover:bg-muted rounded-sm transition-colors hidden sm:block"
+                        className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-muted rounded-sm transition-colors hidden sm:flex"
+                        aria-label="Clear search"
                         onClick={() => {
                           setSearchValue("")
                           const next = { ...(routeSearch || {}) }
@@ -490,7 +514,7 @@ export function Header({
                           navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
                         }}
                       >
-                        <X className="h-3.5 w-3.5 text-muted-foreground" />
+                        <X className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>Clear search</TooltipContent>
@@ -501,10 +525,11 @@ export function Header({
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="p-1 hover:bg-muted rounded-sm transition-colors hidden sm:block"
+                      className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center hover:bg-muted rounded-sm transition-colors hidden sm:flex"
+                      aria-label="Search help"
                       onClick={(e) => e.preventDefault()}
                     >
-                      <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
@@ -529,18 +554,21 @@ export function Header({
       )}
 
 
-      <div className={cn("grid grid-cols-[auto_auto] items-center gap-1 transition-all duration-300 ease-out sm:order-4 lg:order-none", smInnerHeight)}>
+      <div className={cn("grid grid-cols-[auto_auto] items-center gap-1 sm:order-4 lg:order-none", smInnerHeight)}>
         <ThemeToggle />
         <div className={cn(
-          "transition-all duration-300 ease-out overflow-hidden",
+          "transition-[width,opacity] duration-300 ease-out overflow-hidden",
           sidebarCollapsed ? "w-10 opacity-100" : "w-0 opacity-0"
         )}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="hover:bg-muted hover:text-foreground transition-colors relative">
-                <Menu className="h-4 w-4" />
+                <Menu className="h-4 w-4" aria-hidden="true" />
                 {updateInfo && (
-                  <span className="absolute top-1 right-1 h-2 w-2 bg-green-500 rounded-full" />
+                  <span
+                    className="absolute top-1 right-1 h-2 w-2 bg-success rounded-full"
+                    aria-label="Update available"
+                  />
                 )}
               </Button>
             </DropdownMenuTrigger>
@@ -552,12 +580,12 @@ export function Header({
                       href={updateInfo.html_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-green-600 dark:text-green-400 focus:text-green-600 dark:focus:text-green-400 cursor-pointer"
+                      className="flex items-center gap-2 text-success cursor-pointer"
                     >
-                      <Download className="mr-2 h-4 w-4" />
+                      <Download className="mr-2 h-4 w-4" aria-hidden="true" />
                       <div className="flex flex-col">
                         <span className="font-medium">Update Available</span>
-                        <span className="text-[10px] opacity-80">Version {updateInfo.tag_name}</span>
+                        <span className="text-[10px] text-muted-foreground">Version {updateInfo.tag_name}</span>
                       </div>
                     </a>
                   </DropdownMenuItem>
@@ -669,6 +697,8 @@ export function Header({
                                 "h-2 w-2 rounded-full flex-shrink-0",
                                 instance.connected ? "bg-success" : "bg-destructive"
                               )}
+                              role="status"
+                              aria-label={instance.connected ? "Connected" : "Disconnected"}
                             />
                           </span>
                         </Link>

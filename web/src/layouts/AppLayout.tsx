@@ -21,14 +21,16 @@ function AppLayoutContent() {
 
   return (
     <div className="flex h-[100dvh] bg-background">
-      {/* Desktop Sidebar - Collapsible */}
-      <div className={cn(
-        "hidden lg:flex transition-all duration-300 ease-out overflow-hidden",
-        sidebarCollapsed ? "w-0 opacity-0" : "w-64 opacity-100"
-      )}>
-        <div className="w-64 flex-shrink-0">
-          <Sidebar />
-        </div>
+      {/* Desktop Sidebar - Collapsible using transform for GPU acceleration */}
+      <div
+        className={cn(
+          "hidden lg:block w-64 flex-shrink-0 transition-[transform,opacity] duration-300 ease-out",
+          sidebarCollapsed ? "-translate-x-full opacity-0" : "translate-x-0 opacity-100"
+        )}
+        style={{ marginRight: sidebarCollapsed ? "-16rem" : 0 }}
+        aria-hidden={sidebarCollapsed}
+      >
+        <Sidebar />
       </div>
 
       <div className="flex flex-1 flex-col min-w-0 relative">
@@ -42,7 +44,9 @@ function AppLayoutContent() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="hidden lg:flex transition-transform duration-200 hover:scale-110"
+                className="hidden lg:flex"
+                aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+                aria-expanded={!sidebarCollapsed}
               >
                 <Menu className={cn(
                   "h-5 w-5 transition-transform duration-300",

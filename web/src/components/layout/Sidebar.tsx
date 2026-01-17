@@ -65,79 +65,85 @@ export function Sidebar() {
         </h2>
       </div>
 
-      <nav className="flex flex-1 min-h-0 flex-col px-3">
+      <nav className="flex flex-1 min-h-0 flex-col px-3" aria-label="Main navigation">
         {/* Navigation */}
-        <div className="space-y-1 mb-4">
+        <div className="space-y-1 mb-4" role="list">
           <Link
             to="/dashboard"
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
               location.pathname === "/dashboard"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
+            aria-current={location.pathname === "/dashboard" ? "page" : undefined}
           >
-            <Home className="h-4 w-4 flex-shrink-0" />
+            <Home className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Dashboard
           </Link>
           <Link
             to="/search"
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
               location.pathname === "/search"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
+            aria-current={location.pathname === "/search" ? "page" : undefined}
           >
-            <Search className="h-4 w-4 flex-shrink-0" />
+            <Search className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Search
           </Link>
           <Link
             to="/cross-seed"
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
               location.pathname === "/cross-seed"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
+            aria-current={location.pathname === "/cross-seed" ? "page" : undefined}
           >
-            <GitBranch className="h-4 w-4 flex-shrink-0" />
+            <GitBranch className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Cross-Seed
           </Link>
           <Link
             to="/automations"
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
               location.pathname === "/automations"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
+            aria-current={location.pathname === "/automations" ? "page" : undefined}
           >
-            <Zap className="h-4 w-4 flex-shrink-0" />
+            <Zap className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Automations
           </Link>
           <Link
             to="/backups"
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
               location.pathname === "/backups"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
+            aria-current={location.pathname === "/backups" ? "page" : undefined}
           >
-            <Archive className="h-4 w-4 flex-shrink-0" />
+            <Archive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Backups
           </Link>
           <Link
             to="/settings"
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
               location.pathname.startsWith("/settings")
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
+            aria-current={location.pathname.startsWith("/settings") ? "page" : undefined}
           >
-            <Settings className="h-4 w-4 flex-shrink-0" />
+            <Settings className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Settings
           </Link>
         </div>
@@ -162,9 +168,10 @@ export function Sidebar() {
                     to="/instances/$instanceId"
                     params={{ instanceId: instance.id.toString() }}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
                       isActive? "bg-sidebar-primary text-sidebar-primary-foreground": "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     )}
+                    aria-current={isActive ? "page" : undefined}
                   >
                     <HardDrive className="h-4 w-4 flex-shrink-0" />
                     <span className="truncate max-w-36" title={instance.name}>{instance.name}</span>
@@ -211,13 +218,15 @@ export function Sidebar() {
                           "h-2 w-2 rounded-full flex-shrink-0",
                           instance.connected ? "bg-success" : "bg-destructive"
                         )}
+                        role="status"
+                        aria-label={instance.connected ? "Connected" : "Disconnected"}
                       />
                     </span>
                   </Link>
                 )
               })}
               {activeInstances.length === 0 && (
-                <p className="px-3 py-2 text-sm text-sidebar-foreground/50">
+                <p className="px-3 py-2 text-sm text-muted-foreground">
                   {hasConfiguredInstances ? "All instances are disabled" : "No instances configured"}
                 </p>
               )}
