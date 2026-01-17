@@ -5,9 +5,13 @@ package transfer
 
 import (
 	"errors"
+	"regexp"
 
 	"github.com/autobrr/qui/internal/models"
 )
+
+// validTorrentHash matches 40 hex chars (SHA1) or 64 hex chars (SHA256)
+var validTorrentHash = regexp.MustCompile(`^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$`)
 
 // Errors
 var (
@@ -17,6 +21,7 @@ var (
 	ErrMissingTargetID       = errors.New("target instance ID is required")
 	ErrSourceTargetSame      = errors.New("source and target instance must be different")
 	ErrMissingTorrentHash    = errors.New("torrent hash is required")
+	ErrInvalidTorrentHash    = errors.New("invalid torrent hash format (must be 40 or 64 hex characters)")
 	ErrSourceNotAccessible   = errors.New("source instance not accessible or lacks local filesystem access")
 	ErrTargetNotAccessible   = errors.New("target instance not accessible or lacks local filesystem access")
 	ErrTorrentNotFound       = errors.New("torrent not found on source instance")
@@ -48,6 +53,9 @@ func (r *TransferRequest) Validate() error {
 	if r.TorrentHash == "" {
 		return ErrMissingTorrentHash
 	}
+	if !validTorrentHash.MatchString(r.TorrentHash) {
+		return ErrInvalidTorrentHash
+	}
 	return nil
 }
 
@@ -74,6 +82,9 @@ func (r *MoveRequest) Validate() error {
 	}
 	if r.Hash == "" {
 		return ErrMissingTorrentHash
+	}
+	if !validTorrentHash.MatchString(r.Hash) {
+		return ErrInvalidTorrentHash
 	}
 	return nil
 }

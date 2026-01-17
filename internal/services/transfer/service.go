@@ -41,6 +41,7 @@ type Service struct {
 	store         *models.TransferStore
 	instanceStore InstanceProvider
 	syncManager   SyncManager
+	registry      *ExecutorRegistry
 
 	// Background worker
 	workerCtx    context.Context
@@ -67,10 +68,17 @@ func New(
 	instanceStore InstanceProvider,
 	syncManager SyncManager,
 ) *Service {
+	// Create the local executor
+	localExecutor := NewLocalExecutor(syncManager, instanceStore)
+
+	// Create the registry with available executors
+	registry := NewExecutorRegistry(localExecutor)
+
 	return &Service{
 		store:            store,
 		instanceStore:    instanceStore,
 		syncManager:      syncManager,
+		registry:         registry,
 		queue:            make(chan int64, 100),
 		workerCount:      2,
 		recoveryInterval: 30 * time.Second,

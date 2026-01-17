@@ -612,24 +612,20 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
   const { instances } = useInstances()
   const instance = useMemo(() => instances?.find(i => i.id === instanceId), [instances, instanceId])
 
+  // Eligible target instances for move operation (connected with local filesystem access)
+  const eligibleTargetInstances = useMemo(() => {
+    return (instances ?? []).filter(
+      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
+    )
+  }, [instances, instanceId])
+
   // Check if move to instance is available and why not
   const canMoveToInstance = useMemo(() => {
     // Cannot move when Select All is active - requires loading all hashes
     if (isAllSelected) return false
     if (!instance?.hasLocalFilesystemAccess) return false
-    // Check if there are other connected instances with local filesystem access
-    const otherInstances = instances?.filter(
-      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
-    )
-    return (otherInstances?.length ?? 0) > 0
-  }, [instances, instance, instanceId, isAllSelected])
-
-  // Eligible target instances for move operation
-  const eligibleTargetInstances = useMemo(() => {
-    return instances?.filter(
-      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
-    ) ?? []
-  }, [instances, instanceId])
+    return eligibleTargetInstances.length > 0
+  }, [instance, isAllSelected, eligibleTargetInstances])
 
   const moveToInstanceDisabledReason = useMemo(() => {
     // Cannot move when Select All is active - requires loading all hashes
