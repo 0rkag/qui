@@ -316,7 +316,7 @@ export const TorrentFileTable = memo(function TorrentFileTable({
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="min-w-[500px]">
+        <div className="min-w-[320px] sm:min-w-[500px]">
           <table className="w-full text-xs table-fixed">
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>

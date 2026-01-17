@@ -143,7 +143,7 @@ export const CrossSeedTable = memo(function CrossSeedTable({
           <div className="flex items-center gap-1.5 min-w-0">
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="truncate block max-w-[220px]">{name}</span>
+                <span className="truncate block max-w-[140px] md:max-w-[220px]">{name}</span>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[400px]">
                 <p className="text-xs break-all">{name}</p>
@@ -215,7 +215,7 @@ export const CrossSeedTable = memo(function CrossSeedTable({
             <TrackerIconImage tracker={iconKey} trackerIcons={trackerIcons} />
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="truncate block max-w-[100px] text-muted-foreground">
+                <span className="truncate block max-w-[60px] md:max-w-[100px] text-muted-foreground">
                   {displayName}
                 </span>
               </TooltipTrigger>
@@ -383,7 +383,7 @@ export const CrossSeedTable = memo(function CrossSeedTable({
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="min-w-[800px]">
+        <div className="min-w-[600px] md:min-w-[800px]">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-background border-b">
               {table.getHeaderGroups().map((headerGroup) => (

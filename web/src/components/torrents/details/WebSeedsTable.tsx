@@ -125,7 +125,7 @@ export const WebSeedsTable = memo(function WebSeedsTable({
       </div>
 
       <ScrollArea className="flex-1 min-h-0">
-        <div className="min-w-[300px]">
+        <div className="min-w-[280px]">
           <table className="w-full text-xs">
             <thead className="sticky top-0 z-10 bg-background border-b">
               {table.getHeaderGroups().map((headerGroup) => (

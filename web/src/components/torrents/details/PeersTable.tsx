@@ -224,7 +224,7 @@ export const PeersTable = memo(function PeersTable({
 
   return (
     <ScrollArea className="h-full">
-      <div className="min-w-[700px]">
+      <div className="min-w-[500px] md:min-w-[700px]">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10 bg-background border-b">
             {table.getHeaderGroups().map((headerGroup) => (
