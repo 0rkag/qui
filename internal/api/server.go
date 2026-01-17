@@ -323,8 +323,10 @@ func (s *Server) Handler() (*chi.Mux, error) {
 
 	// Instance connections handler (for SSH/remote access)
 	var instanceConnectionsHandler *handlers.InstanceConnectionsHandler
+	var sshTerminalHandler *handlers.SSHTerminalHandler
 	if s.instanceConnectionStore != nil {
 		instanceConnectionsHandler = handlers.NewInstanceConnectionsHandler(s.instanceConnectionStore)
+		sshTerminalHandler = handlers.NewSSHTerminalHandler(s.instanceConnectionStore)
 	}
 
 	// Transfer handler (if service is available)
@@ -521,12 +523,29 @@ func (s *Server) Handler() (*chi.Mux, error) {
 						r.Route("/connections", func(r chi.Router) {
 							r.Get("/", instanceConnectionsHandler.List)
 							r.Post("/", instanceConnectionsHandler.Create)
-							r.Post("/test", instanceConnectionsHandler.Test)
+
+							// Rate limit SSH test endpoints: 5 requests per 10 seconds with 2 in backlog
+							// This prevents abuse while allowing legitimate testing
+							r.Group(func(r chi.Router) {
+								r.Use(middleware.ThrottleBacklog(5, 2, 10*time.Second))
+								r.Post("/test", instanceConnectionsHandler.Test)
+							})
+
 							r.Route("/{id}", func(r chi.Router) {
 								r.Get("/", instanceConnectionsHandler.Get)
 								r.Put("/", instanceConnectionsHandler.Update)
 								r.Delete("/", instanceConnectionsHandler.Delete)
-								r.Post("/test", instanceConnectionsHandler.TestExisting)
+
+								// Rate limit existing connection test
+								r.Group(func(r chi.Router) {
+									r.Use(middleware.ThrottleBacklog(5, 2, 10*time.Second))
+									r.Post("/test", instanceConnectionsHandler.TestExisting)
+								})
+
+								// WebSocket SSH terminal (easter egg)
+								if sshTerminalHandler != nil {
+									r.Get("/terminal", sshTerminalHandler.HandleTerminal)
+								}
 							})
 						})
 					}

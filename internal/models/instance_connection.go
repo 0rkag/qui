@@ -30,6 +30,15 @@ const (
 	ProtocolFTP  = "ftp"
 )
 
+// Validation limits
+const (
+	MaxHostnameLength     = 253
+	MaxUsernameLength     = 64
+	MaxPrivateKeyPathLen  = 4096
+	MaxPortNumber         = 65535
+	MaxConnectionsPerList = 100 // Reasonable limit for connections per instance
+)
+
 var (
 	ErrConnectionNotFound      = errors.New("connection not found")
 	ErrDuplicateConnection     = errors.New("connection already exists for this instance and protocol")
@@ -68,7 +77,7 @@ func (c *InstanceConnection) Validate() error {
 	if host == "" {
 		return errors.New("host is required")
 	}
-	if len(host) > 253 {
+	if len(host) > MaxHostnameLength {
 		return errors.New("host too long (max 253 chars)")
 	}
 	if !validConnHostname.MatchString(host) {
@@ -76,7 +85,7 @@ func (c *InstanceConnection) Validate() error {
 	}
 	c.Host = host
 
-	if c.Port <= 0 || c.Port > 65535 {
+	if c.Port <= 0 || c.Port > MaxPortNumber {
 		return errors.New("port must be between 1 and 65535")
 	}
 
@@ -85,7 +94,7 @@ func (c *InstanceConnection) Validate() error {
 	if username == "" {
 		return errors.New("username is required")
 	}
-	if len(username) > 64 {
+	if len(username) > MaxUsernameLength {
 		return errors.New("username too long (max 64 chars)")
 	}
 	if !validConnUsername.MatchString(username) {
@@ -119,7 +128,7 @@ func validatePrivateKeyPath(path string) error {
 	}
 
 	// Check path length
-	if len(cleaned) > 4096 {
+	if len(cleaned) > MaxPrivateKeyPathLen {
 		return errors.New("private key path too long")
 	}
 
@@ -257,7 +266,8 @@ func (s *InstanceConnectionStore) ListByInstance(ctx context.Context, instanceID
 		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ?
-		ORDER BY protocol`, instanceID)
+		ORDER BY protocol
+		LIMIT ?`, instanceID, MaxConnectionsPerList)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +282,8 @@ func (s *InstanceConnectionStore) ListEnabledByInstance(ctx context.Context, ins
 		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ? AND enabled = 1
-		ORDER BY protocol`, instanceID)
+		ORDER BY protocol
+		LIMIT ?`, instanceID, MaxConnectionsPerList)
 	if err != nil {
 		return nil, err
 	}

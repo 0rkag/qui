@@ -2,6 +2,27 @@
 @import 'tw-animate-css';
 @import 'react-day-picker/style.css';
 
+/*
+ * Pragmasevka font for SSH terminal (optional)
+ * Download from: https://github.com/shytikov/pragmasevka/releases
+ * Place the .woff2 file in public/fonts/
+ */
+@font-face {
+  font-family: 'Pragmasevka';
+  src: url('/fonts/Pragmasevka-Regular.woff2') format('woff2');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* xterm terminal overrides */
+.xterm {
+  border: none !important;
+}
+.xterm-viewport {
+  border: none !important;
+}
+
 /* Override react-day-picker styles to use theme colors */
 .rdp-root {
   --rdp-accent-color: var(--primary);

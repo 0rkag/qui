@@ -487,7 +487,7 @@ export function PathMappingsEditor({ instanceId, instanceName }: PathMappingsEdi
                   />
                   <Select
                     value={crossTestTargetId?.toString() ?? ""}
-                    onValueChange={(v) => setCrossTestTargetId(Number(v))}
+                    onValueChange={(v) => setCrossTestTargetId(v ? parseInt(v, 10) : null)}
                   >
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="Select target instance" />

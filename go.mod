@@ -18,6 +18,7 @@ require (
 	github.com/expr-lang/expr v1.17.7
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-chi/chi/v5 v5.2.3
+	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-version v1.8.0
 	github.com/keygen-sh/machineid v1.1.1
 	github.com/klauspost/compress v1.18.2

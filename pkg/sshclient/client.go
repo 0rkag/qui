@@ -8,10 +8,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -32,6 +34,9 @@ type Client struct {
 
 // New creates a new SSH client and establishes a connection.
 func New(cfg *Config) (*Client, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config cannot be nil")
+	}
 	if cfg.Port == 0 {
 		cfg.Port = 22
 	}
@@ -93,6 +98,7 @@ type ExecResult struct {
 // This is a limitation of the Go SSH library - there's no way to forcefully
 // interrupt a blocked session.Run() call.
 func (c *Client) Exec(ctx context.Context, cmd string) (*ExecResult, error) {
+	log.Info().Str("cmd", cmd).Msg("exec command")
 	session, err := c.client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
@@ -299,4 +305,73 @@ func ShellQuote(s string) string {
 // shellQuote is an internal alias for backwards compatibility.
 func shellQuote(s string) string {
 	return ShellQuote(s)
+}
+
+// ShellSession represents an interactive shell session with PTY.
+type ShellSession struct {
+	Session *ssh.Session
+	Stdin   io.WriteCloser
+	Stdout  io.Reader
+	Stderr  io.Reader
+}
+
+// Shell creates an interactive shell session with a pseudo-terminal.
+// The caller is responsible for closing the session when done.
+func (c *Client) Shell(cols, rows uint32) (*ShellSession, error) {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+
+	// Request pseudo-terminal
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          1,     // Enable echo
+		ssh.TTY_OP_ISPEED: 14400, // Input speed
+		ssh.TTY_OP_OSPEED: 14400, // Output speed
+	}
+
+	if err := session.RequestPty("xterm-256color", int(rows), int(cols), modes); err != nil {
+		session.Close()
+		return nil, fmt.Errorf("request pty: %w", err)
+	}
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		session.Close()
+		return nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		session.Close()
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+
+	stderr, err := session.StderrPipe()
+	if err != nil {
+		session.Close()
+		return nil, fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	if err := session.Shell(); err != nil {
+		session.Close()
+		return nil, fmt.Errorf("start shell: %w", err)
+	}
+
+	return &ShellSession{
+		Session: session,
+		Stdin:   stdin,
+		Stdout:  stdout,
+		Stderr:  stderr,
+	}, nil
+}
+
+// Resize changes the terminal size for an active shell session.
+func (s *ShellSession) Resize(cols, rows uint32) error {
+	return s.Session.WindowChange(int(rows), int(cols))
+}
+
+// Close closes the shell session.
+func (s *ShellSession) Close() error {
+	return s.Session.Close()
 }

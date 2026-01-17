@@ -110,6 +110,7 @@ export default defineConfig(() => ({
       "/api": {
         target: "http://localhost:7476",
         changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
       },
     },
   },
@@ -120,6 +121,7 @@ export default defineConfig(() => ({
           "react-vendor": ["react", "react-dom", "react-hook-form"],
           "tanstack": ["@tanstack/react-router", "@tanstack/react-query", "@tanstack/react-table", "@tanstack/react-virtual"],
           "ui-vendor": ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "lucide-react"],
+          "xterm": ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-web-links"],
         },
       },
     },

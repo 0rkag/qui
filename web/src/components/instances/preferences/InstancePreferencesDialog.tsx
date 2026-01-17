@@ -5,13 +5,14 @@
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, Cog, Folder, FolderSync, Gauge, Radar, Settings, Upload, Wifi } from "lucide-react"
+import { Clock, Cog, Folder, FolderSync, Gauge, Radar, Settings, Terminal, Upload, Wifi } from "lucide-react"
 import { AdvancedNetworkForm } from "./AdvancedNetworkForm"
 import { ConnectionSettingsForm } from "./ConnectionSettingsForm"
 import { FileManagementForm } from "./FileManagementForm"
 import { NetworkDiscoveryForm } from "./NetworkDiscoveryForm"
 import { PathMappingsEditor } from "./PathMappingsEditor"
 import { QueueManagementForm } from "./QueueManagementForm"
+import { RemoteAccessEditor } from "./RemoteAccessEditor"
 import { SeedingLimitsForm } from "./SeedingLimitsForm"
 import { SpeedLimitsForm } from "./SpeedLimitsForm"
 
@@ -49,7 +50,7 @@ export function InstancePreferencesDialog({
         </DialogHeader>
 
         <Tabs defaultValue={defaultTab ?? "speed"} className="w-full">
-          <TabsList className="grid w-full grid-cols-8">
+          <TabsList className="grid w-full grid-cols-9">
             <TabsTrigger value="speed" className="flex items-center gap-2">
               <Gauge className="h-4 w-4" />
               <span className="hidden sm:inline">Speed</span>
@@ -65,6 +66,10 @@ export function InstancePreferencesDialog({
             <TabsTrigger value="paths" className="flex items-center gap-2">
               <FolderSync className="h-4 w-4" />
               <span className="hidden sm:inline">Paths</span>
+            </TabsTrigger>
+            <TabsTrigger value="remote" className="flex items-center gap-2">
+              <Terminal className="h-4 w-4" />
+              <span className="hidden sm:inline">Remote</span>
             </TabsTrigger>
             <TabsTrigger value="seeding" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
@@ -122,6 +127,16 @@ export function InstancePreferencesDialog({
               </p>
             </div>
             <PathMappingsEditor instanceId={instanceId} instanceName={instanceName} />
+          </TabsContent>
+
+          <TabsContent value="remote" className="space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-lg font-medium">Remote Access</h3>
+              <p className="text-sm text-muted-foreground">
+                Configure SSH connections for remote file operations
+              </p>
+            </div>
+            <RemoteAccessEditor instanceId={instanceId} instanceName={instanceName} />
           </TabsContent>
 
           <TabsContent value="seeding" className="space-y-4">

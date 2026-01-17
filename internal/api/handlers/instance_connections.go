@@ -14,6 +14,9 @@ import (
 	"github.com/autobrr/qui/pkg/sshclient"
 )
 
+// maxRequestBodySize limits request body size to prevent memory exhaustion attacks.
+const maxRequestBodySize = 1 << 20 // 1 MB
+
 // InstanceConnectionsHandler handles instance connection API endpoints.
 type InstanceConnectionsHandler struct {
 	store *models.InstanceConnectionStore
@@ -87,11 +90,22 @@ func (h *InstanceConnectionsHandler) Create(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+
 	var payload CreateConnectionPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		log.Warn().Err(err).Msg("connections: failed to decode create payload")
 		RespondError(w, http.StatusBadRequest, "Invalid request payload")
 		return
+	}
+
+	// Validate private key path if provided
+	if payload.PrivateKeyPath != "" {
+		if err := sshclient.ValidatePath(payload.PrivateKeyPath); err != nil {
+			RespondError(w, http.StatusBadRequest, "Invalid private key path: "+err.Error())
+			return
+		}
 	}
 
 	enabled := true
@@ -171,11 +185,22 @@ func (h *InstanceConnectionsHandler) Update(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+
 	var payload UpdateConnectionPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		log.Warn().Err(err).Msg("connections: failed to decode update payload")
 		RespondError(w, http.StatusBadRequest, "Invalid request payload")
 		return
+	}
+
+	// Validate private key path if provided
+	if payload.PrivateKeyPath != "" {
+		if err := sshclient.ValidatePath(payload.PrivateKeyPath); err != nil {
+			RespondError(w, http.StatusBadRequest, "Invalid private key path: "+err.Error())
+			return
+		}
 	}
 
 	// Get existing connection to preserve fields
@@ -263,11 +288,25 @@ func (h *InstanceConnectionsHandler) Delete(w http.ResponseWriter, r *http.Reque
 // Test handles POST /api/instances/{instanceID}/connections/test
 // Tests an SSH/SFTP connection without saving it.
 func (h *InstanceConnectionsHandler) Test(w http.ResponseWriter, r *http.Request) {
+	// Limit request body size
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+
 	var payload TestConnectionPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		log.Warn().Err(err).Msg("connections: failed to decode test payload")
 		RespondError(w, http.StatusBadRequest, "Invalid request payload")
 		return
+	}
+
+	// Validate private key path if provided
+	if payload.PrivateKeyPath != "" {
+		if err := sshclient.ValidatePath(payload.PrivateKeyPath); err != nil {
+			RespondJSON(w, http.StatusOK, SSHTestResult{
+				Success: false,
+				Message: "Invalid private key path: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	// Only SSH and SFTP can be tested (they use the same protocol)
