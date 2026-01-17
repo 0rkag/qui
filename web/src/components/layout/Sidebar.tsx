@@ -31,49 +31,8 @@ import {
   Search,
   SearchCode,
   Settings,
-  Zap
+  Zap,
 } from "lucide-react"
-
-interface NavItem {
-  title: string
-  href: string
-  icon: React.ComponentType<{ className?: string }>
-  params?: Record<string, string>
-}
-
-const navigation: NavItem[] = [
-  {
-    title: "Dashboard",
-    href: "/dashboard",
-    icon: Home,
-  },
-  {
-    title: "Search",
-    href: "/search",
-    icon: Search,
-  },
-  {
-    title: "Cross-Seed",
-    href: "/cross-seed",
-    icon: GitBranch,
-    params: {},
-  },
-  {
-    title: "Automations",
-    href: "/automations",
-    icon: Zap,
-  },
-  {
-    title: "Backups",
-    href: "/backups",
-    icon: Archive,
-  },
-  {
-    title: "Settings",
-    href: "/settings",
-    icon: Settings,
-  },
-]
 
 export function Sidebar() {
   const location = useLocation()
@@ -107,30 +66,83 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-1 min-h-0 flex-col px-3">
-        <div className="space-y-1">
-          {navigation.map((item) => {
-            const Icon = item.icon
-            const isActive = location.pathname === item.href
-
-            return (
-              <Link
-                key={item.href}
-                to={item.href}
-                params={item.params}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
-                  isActive? "bg-sidebar-primary text-sidebar-primary-foreground": "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.title}
-              </Link>
-            )
-          })}
+        {/* Navigation */}
+        <div className="space-y-1 mb-4">
+          <Link
+            to="/dashboard"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              location.pathname === "/dashboard"
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Home className="h-4 w-4 flex-shrink-0" />
+            Dashboard
+          </Link>
+          <Link
+            to="/search"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              location.pathname === "/search"
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Search className="h-4 w-4 flex-shrink-0" />
+            Search
+          </Link>
+          <Link
+            to="/cross-seed"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              location.pathname === "/cross-seed"
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <GitBranch className="h-4 w-4 flex-shrink-0" />
+            Cross-Seed
+          </Link>
+          <Link
+            to="/automations"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              location.pathname === "/automations"
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Zap className="h-4 w-4 flex-shrink-0" />
+            Automations
+          </Link>
+          <Link
+            to="/backups"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              location.pathname === "/backups"
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Archive className="h-4 w-4 flex-shrink-0" />
+            Backups
+          </Link>
+          <Link
+            to="/settings"
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200 ease-out",
+              location.pathname.startsWith("/settings")
+                ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )}
+          >
+            <Settings className="h-4 w-4 flex-shrink-0" />
+            Settings
+          </Link>
         </div>
 
-        <Separator className="my-4" />
-
+        {/* Instances */}
         <div className="flex-1 min-h-0">
           <div className="flex h-full min-h-0 flex-col">
             <p className="px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/70">

@@ -188,9 +188,9 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
   const connectionStatusAriaLabel = hasConnectionStatus ? `qBittorrent connection status: ${connectionStatusDisplay || formattedConnectionStatus}` : "qBittorrent connection status unknown"
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-1.5 border-t flex-shrink-0 select-none text-xs">
+    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-2 py-1.5 border-t flex-shrink-0 select-none text-xs">
       {/* Left: Selection/Count Info */}
-      <div className="text-muted-foreground min-w-[200px]">
+      <div className="text-muted-foreground min-w-0 sm:min-w-[200px] truncate">
         {selectionInfo ? (
           selectionInfo.effectiveSelectionCount > 0 ? (
             <>
@@ -256,7 +256,7 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
                 variant="ghost"
                 size="sm"
                 onClick={() => setSpeedUnit(speedUnit === "bytes" ? "bits" : "bytes")}
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-accent-foreground"
+                className="hidden sm:inline-flex h-6 px-2 text-xs text-muted-foreground hover:text-accent-foreground"
               >
                 <ArrowUpDown className="h-3 w-3" />
                 <span>{speedUnit === "bytes" ? "MiB/s" : "Mbps"}</span>
@@ -313,8 +313,8 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
           )}
         </div>
 
-        {/* View Controls */}
-        <div className="flex items-center gap-2 pr-2 border-r last:border-r-0 last:pr-0">
+        {/* View Controls - hidden on narrow screens */}
+        <div className="hidden sm:flex items-center gap-2 pr-2 border-r last:border-r-0 last:pr-0">
           <Button
             variant="ghost"
             size="sm"
@@ -355,9 +355,9 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
           </Button>
         </div>
 
-        {/* Free Space */}
+        {/* Free Space - hidden on narrow screens */}
         {serverState?.free_space_on_disk !== undefined && (
-          <div className="flex items-center gap-2 pr-2 border-r last:border-r-0 last:pr-0">
+          <div className="hidden sm:flex items-center gap-2 pr-2 border-r last:border-r-0 last:pr-0">
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="flex items-center h-6 px-2 text-xs text-muted-foreground">
@@ -372,16 +372,19 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
 
         {/* Network Status */}
         <div className="flex items-center gap-2">
-          <ExternalIPAddress
-            address={serverState?.last_external_address_v4}
-            incognitoMode={incognitoMode}
-            label="IPv4"
-          />
-          <ExternalIPAddress
-            address={serverState?.last_external_address_v6}
-            incognitoMode={incognitoMode}
-            label="IPv6"
-          />
+          {/* IP addresses hidden on narrow screens - visible via connection icon tooltip */}
+          <span className="hidden md:contents">
+            <ExternalIPAddress
+              address={serverState?.last_external_address_v4}
+              incognitoMode={incognitoMode}
+              label="IPv4"
+            />
+            <ExternalIPAddress
+              address={serverState?.last_external_address_v6}
+              incognitoMode={incognitoMode}
+              label="IPv6"
+            />
+          </span>
           <Tooltip>
             <TooltipTrigger asChild>
               <span

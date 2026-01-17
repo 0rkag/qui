@@ -37,8 +37,8 @@ import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import type { InstanceCapabilities } from "@/types"
 import { useQuery } from "@tanstack/react-query"
-import { Link, useNavigate, useSearch } from "@tanstack/react-router"
-import { Archive, ChevronsUpDown, Download, FileEdit, FunnelPlus, FunnelX, GitBranch, HardDrive, Home, Info, ListTodo, Loader2, LogOut, Menu, Plus, Rss, Search, SearchCode, Server, Settings, X, Zap } from "lucide-react"
+import { Link, useLocation, useNavigate, useSearch } from "@tanstack/react-router"
+import { Archive, ChevronsUpDown, Download, EllipsisVertical, FileEdit, FunnelPlus, FunnelX, GitBranch, HardDrive, Home, Info, ListTodo, Loader2, LogOut, Menu, Plus, Rss, Search, SearchCode, Server, Settings, X, Zap } from "lucide-react"
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useHotkeys } from "react-hotkeys-hook"
 
@@ -53,6 +53,7 @@ export function Header({
 }: HeaderProps) {
   const { logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const routeSearch = useSearch({ strict: false }) as { q?: string; modal?: string;[key: string]: unknown }
   const { state: layoutRouteState } = useLayoutRoute()
 
@@ -177,8 +178,8 @@ export function Header({
   const smInnerHeight = viewMode === "dense" ? "sm:h-10 lg:h-auto" : "sm:h-12 lg:h-auto"
 
   return (
-    <header className={cn("sticky top-0 z-50 hidden md:flex flex-wrap lg:flex-nowrap items-start lg:items-center justify-between sm:border-b bg-background pl-2 pr-4 md:pl-4 md:pr-4 lg:pl-0 lg:static py-2 lg:py-0", headerHeight)}>
-      <div className={cn("hidden md:flex items-center gap-2 mr-2 order-1 lg:order-none", innerHeight)}>
+    <header className={cn("sticky top-0 z-50 flex flex-wrap lg:flex-nowrap items-start lg:items-center justify-between border-b bg-background px-2 md:pl-4 md:pr-4 lg:pl-0 lg:static py-2 lg:py-0", headerHeight)}>
+      <div className={cn("flex items-center gap-2 mr-2 order-1 lg:order-none", innerHeight)}>
         {children}
         {instanceName && hasMultipleActiveInstances ? (
           <DropdownMenu>
@@ -262,120 +263,189 @@ export function Header({
         )}
       </div>
 
-      {/* Filter button and action buttons - always on first row */}
-      {shouldShowInstanceControls && (
-        <>
-          <div className={cn(
-            "hidden md:flex items-center gap-2 order-2 lg:order-none",
-            innerHeight,
-            sidebarCollapsed && "lg:ml-2"
-          )}>
-            {/* Filter button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="hidden md:inline-flex"
-                  onClick={handleToggleFilters}
-                >
-                  {filterSidebarCollapsed ? (
-                    <FunnelPlus className="h-4 w-4" />
-                  ) : (
-                    <FunnelX className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{filterSidebarCollapsed ? "Show filters" : "Hide filters"}</TooltipContent>
-            </Tooltip>
-            {/* Add Torrent button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="hidden md:inline-flex"
-                  onClick={() => {
-                    const next = { ...(routeSearch || {}), modal: "add-torrent" }
-                    navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Add torrent</TooltipContent>
-            </Tooltip>
-            {/* Create Torrent button - only show if instance supports it */}
-            {supportsTorrentCreation && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="hidden md:inline-flex"
-                    onClick={() => {
-                      const next = { ...(routeSearch || {}), modal: "create-torrent" }
-                      navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
-                    }}
-                  >
-                    <FileEdit className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Create torrent</TooltipContent>
-              </Tooltip>
-            )}
-            {/* Tasks button - only show on instance routes if torrent creation is supported */}
-            {isInstanceRoute && supportsTorrentCreation && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="hidden md:inline-flex relative"
-                    onClick={() => {
-                      const next = { ...(routeSearch || {}), modal: "tasks" }
-                      navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
-                    }}
-                  >
-                    <ListTodo className="h-4 w-4" />
-                    {activeTaskCount > 0 && (
-                      <Badge variant="default" className="absolute -top-1 -right-1 h-5 min-w-5 flex items-center justify-center p-0 text-xs">
-                        {activeTaskCount}
-                      </Badge>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Torrent creation tasks</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-          {/* Management Bar - only shows when torrents selected, wraps to new line on tablet */}
-          {(selectedHashes.length > 0 || isAllSelected) && (
-            <div className="sm:w-full sm:basis-full lg:basis-auto lg:w-auto sm:order-5 lg:order-none flex justify-center lg:justify-start lg:ml-2 animate-in fade-in duration-400 ease-out motion-reduce:animate-none motion-reduce:duration-0">
-              <TorrentManagementBar
-                instanceId={selectedInstanceId || undefined}
-                selectedHashes={selectedHashes}
-                selectedTorrents={selectedTorrents}
-                isAllSelected={isAllSelected}
-                totalSelectionCount={totalSelectionCount}
-                totalSelectionSize={selectedTotalSize}
-                filters={filters}
-                search={routeSearch?.q}
-                excludeHashes={excludeHashes}
-                onComplete={clearSelection}
-              />
-            </div>
-          )}
-        </>
+      {/* Navigation buttons - visible when sidebar is hidden */}
+      <div className={cn(
+        "flex items-center gap-1 order-2 lg:order-none",
+        innerHeight,
+        sidebarCollapsed ? "lg:flex lg:ml-2" : "lg:hidden"
+      )}>
+        {/* Main navigation items */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={location.pathname === "/dashboard" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              asChild
+            >
+              <Link to="/dashboard">
+                <Home className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Dashboard</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={location.pathname === "/search" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              asChild
+            >
+              <Link to="/search">
+                <Search className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Search</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={location.pathname === "/cross-seed" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              asChild
+            >
+              <Link to="/cross-seed">
+                <GitBranch className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Cross-Seed</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={location.pathname === "/automations" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              asChild
+            >
+              <Link to="/automations">
+                <Zap className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Automations</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={location.pathname === "/backups" ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              asChild
+            >
+              <Link to="/backups">
+                <Archive className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Backups</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={location.pathname.startsWith("/settings") ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              asChild
+            >
+              <Link to="/settings">
+                <Settings className="h-4 w-4" />
+              </Link>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Settings</TooltipContent>
+        </Tooltip>
+      </div>
+      {/* Management Bar - only shows when torrents selected on instance routes */}
+      {shouldShowInstanceControls && (selectedHashes.length > 0 || isAllSelected) && (
+        <div className="sm:w-full sm:basis-full lg:basis-auto lg:w-auto sm:order-5 lg:order-none flex justify-center lg:justify-start lg:ml-2 animate-in fade-in duration-400 ease-out motion-reduce:animate-none motion-reduce:duration-0">
+          <TorrentManagementBar
+            instanceId={selectedInstanceId || undefined}
+            selectedHashes={selectedHashes}
+            selectedTorrents={selectedTorrents}
+            isAllSelected={isAllSelected}
+            totalSelectionCount={totalSelectionCount}
+            totalSelectionSize={selectedTotalSize}
+            filters={filters}
+            search={routeSearch?.q}
+            excludeHashes={excludeHashes}
+            onComplete={clearSelection}
+          />
+        </div>
       )}
       {/* Instance route - search on right */}
       {shouldShowInstanceControls && (
         <div className={cn("flex items-center flex-1 gap-2 sm:order-3 lg:order-none", smInnerHeight)}>
 
-          {/* Right side: Filter button and Search bar */}
+          {/* Right side: Actions menu and Search bar */}
           <div className="flex items-center gap-2 flex-1 justify-end mr-2">
-            {/* Search bar - hidden on mobile (< lg), use modal search button instead */}
-            <div className="relative w-full md:w-62 md:focus-within:w-full max-w-md transition-[width] duration-100 ease-out will-change-[width] hidden md:block">
+            {/* Actions dropdown menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="h-8 w-8 relative">
+                  <EllipsisVertical className="h-4 w-4" />
+                  {activeTaskCount > 0 && (
+                    <span className="absolute -top-1 -right-1 h-4 min-w-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium">
+                      {activeTaskCount}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={handleToggleFilters}>
+                  {filterSidebarCollapsed ? (
+                    <FunnelPlus className="mr-2 h-4 w-4" />
+                  ) : (
+                    <FunnelX className="mr-2 h-4 w-4" />
+                  )}
+                  {filterSidebarCollapsed ? "Show Filters" : "Hide Filters"}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    const next = { ...(routeSearch || {}), modal: "add-torrent" }
+                    navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Torrent
+                </DropdownMenuItem>
+                {supportsTorrentCreation && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      const next = { ...(routeSearch || {}), modal: "create-torrent" }
+                      navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
+                    }}
+                  >
+                    <FileEdit className="mr-2 h-4 w-4" />
+                    Create Torrent
+                  </DropdownMenuItem>
+                )}
+                {supportsTorrentCreation && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      const next = { ...(routeSearch || {}), modal: "tasks" }
+                      navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
+                    }}
+                  >
+                    <ListTodo className="mr-2 h-4 w-4" />
+                    Creation Tasks
+                    {activeTaskCount > 0 && (
+                      <Badge variant="secondary" className="ml-auto">
+                        {activeTaskCount}
+                      </Badge>
+                    )}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Search bar */}
+            <div className="relative flex-1 min-w-0 md:w-62 md:flex-initial md:focus-within:w-full max-w-md transition-[width] duration-100 ease-out will-change-[width]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none transition-opacity duration-300" />
               <Input
                 ref={searchInputRef}

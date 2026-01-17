@@ -371,7 +371,7 @@ export function Torrents({ instanceId, search, onSearchChange }: TorrentsProps) 
       {/* Desktop Sidebar - slides in on tablet/desktop */}
       <div
         className={cn(
-          "hidden md:flex shrink-0 h-full overflow-hidden transition-[flex-basis,width] duration-300 ease-in-out",
+          "hidden md:flex shrink-0 h-full overflow-hidden transition-[flex-basis,width] duration-300 ease-in-out flex-col",
           filterSidebarCollapsed && "basis-0"
         )}
         style={{ flexBasis: filterSidebarCollapsed ? 0 : sidebarWidth }}
@@ -379,7 +379,7 @@ export function Torrents({ instanceId, search, onSearchChange }: TorrentsProps) 
       >
         <div
           className={cn(
-            "h-full overflow-hidden transition-[transform,opacity,width] duration-300 ease-in-out",
+            "h-full overflow-hidden transition-[transform,opacity,width] duration-300 ease-in-out flex flex-col",
             filterSidebarCollapsed ? "-translate-x-full opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
           )}
           style={{ width: sidebarWidth }}

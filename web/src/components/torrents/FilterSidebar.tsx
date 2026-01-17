@@ -1830,7 +1830,7 @@ const FilterSidebarComponent = ({
 
   return (
     <div
-      className={`${className} h-full w-full ${sidebarMaxWidth} flex flex-col xl:flex-shrink-0 xl:border-r xl:bg-muted/10 ${
+      className={`${className} h-full w-full ${sidebarMaxWidth} flex flex-col md:flex-shrink-0 md:border-r md:bg-muted/10 ${
         isStaleData ? "opacity-75 transition-opacity duration-200" : ""
       }`}
     >

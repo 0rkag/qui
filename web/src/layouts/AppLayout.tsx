@@ -4,7 +4,6 @@
  */
 
 import { Outlet } from "@tanstack/react-router"
-import { MobileFooterNav } from "@/components/layout/MobileFooterNav"
 import { Header } from "@/components/layout/Header"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { LayoutRouteProvider } from "@/contexts/LayoutRouteContext"
@@ -56,16 +55,10 @@ function AppLayoutContent() {
             </TooltipContent>
           </Tooltip>
         </Header>
-        <main className={cn(
-          "flex-1 overflow-y-auto",
-          "pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0"
-        )}>
+        <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>
-
-      {/* Mobile Footer Navigation */}
-      <MobileFooterNav />
     </div>
   )
 }
