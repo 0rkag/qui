@@ -56,7 +56,9 @@ func New(cfg *Config) (*Client, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return nil, fmt.Errorf("ssh dial %s: %w", addr, err)
+		// Don't include address in error to avoid leaking sensitive info to end users
+		// The underlying error may still contain connection details for logging
+		return nil, fmt.Errorf("ssh connection failed: %w", err)
 	}
 
 	return &Client{
@@ -81,18 +83,26 @@ type ExecResult struct {
 }
 
 // Exec executes a command on the remote host.
+//
+// On context cancellation, the function attempts graceful cleanup:
+// 1. Signals SIGKILL to the remote process
+// 2. Closes the SSH session to unblock the goroutine
+// 3. Waits up to the client's configured timeout for the goroutine to exit
+//
+// If the goroutine doesn't exit within the timeout, it will be orphaned.
+// This is a limitation of the Go SSH library - there's no way to forcefully
+// interrupt a blocked session.Run() call.
 func (c *Client) Exec(ctx context.Context, cmd string) (*ExecResult, error) {
 	session, err := c.client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
 	}
-	defer session.Close()
 
 	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
 	session.Stderr = &stderr
 
-	// Handle context cancellation
+	// Run command in goroutine to allow context cancellation
 	done := make(chan error, 1)
 	go func() {
 		done <- session.Run(cmd)
@@ -100,9 +110,12 @@ func (c *Client) Exec(ctx context.Context, cmd string) (*ExecResult, error) {
 
 	select {
 	case <-ctx.Done():
-		_ = session.Signal(ssh.SIGKILL)
+		// Attempt graceful cleanup
+		c.cleanupSession(session, done)
 		return nil, ctx.Err()
+
 	case err := <-done:
+		session.Close()
 		result := &ExecResult{
 			Stdout:   stdout.String(),
 			Stderr:   stderr.String(),
@@ -116,6 +129,32 @@ func (c *Client) Exec(ctx context.Context, cmd string) (*ExecResult, error) {
 			}
 		}
 		return result, nil
+	}
+}
+
+// cleanupSession attempts to gracefully terminate a session and wait for the
+// goroutine to exit. Uses the client's configured timeout for the wait.
+func (c *Client) cleanupSession(session *ssh.Session, done <-chan error) {
+	// Signal the remote process to terminate
+	_ = session.Signal(ssh.SIGKILL)
+
+	// Close the session - this should unblock session.Run()
+	_ = session.Close()
+
+	// Use client's timeout for cleanup wait, with a minimum of 5 seconds
+	cleanupTimeout := c.config.Timeout
+	if cleanupTimeout < 5*time.Second {
+		cleanupTimeout = 5 * time.Second
+	}
+
+	// Wait for the goroutine to acknowledge the close
+	select {
+	case <-done:
+		// Goroutine exited cleanly
+	case <-time.After(cleanupTimeout):
+		// Goroutine didn't exit - this is a known limitation of the SSH library.
+		// The goroutine will eventually exit when the underlying TCP connection
+		// times out or is closed by the OS.
 	}
 }
 
@@ -133,12 +172,18 @@ func (c *Client) ExecSimple(ctx context.Context, cmd string) (string, error) {
 
 // MkdirAll creates a directory and all parent directories on the remote host.
 func (c *Client) MkdirAll(ctx context.Context, path string) error {
+	if err := ValidatePath(path); err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
 	_, err := c.ExecSimple(ctx, fmt.Sprintf("mkdir -p %s", shellQuote(path)))
 	return err
 }
 
 // Exists checks if a path exists on the remote host.
 func (c *Client) Exists(ctx context.Context, path string) (bool, error) {
+	if err := ValidatePath(path); err != nil {
+		return false, fmt.Errorf("invalid path: %w", err)
+	}
 	result, err := c.Exec(ctx, fmt.Sprintf("test -e %s", shellQuote(path)))
 	if err != nil {
 		return false, err
@@ -148,6 +193,9 @@ func (c *Client) Exists(ctx context.Context, path string) (bool, error) {
 
 // IsDir checks if a path is a directory on the remote host.
 func (c *Client) IsDir(ctx context.Context, path string) (bool, error) {
+	if err := ValidatePath(path); err != nil {
+		return false, fmt.Errorf("invalid path: %w", err)
+	}
 	result, err := c.Exec(ctx, fmt.Sprintf("test -d %s", shellQuote(path)))
 	if err != nil {
 		return false, err
@@ -157,12 +205,24 @@ func (c *Client) IsDir(ctx context.Context, path string) (bool, error) {
 
 // Hardlink creates a hardlink from src to dst on the remote host.
 func (c *Client) Hardlink(ctx context.Context, src, dst string) error {
+	if err := ValidatePath(src); err != nil {
+		return fmt.Errorf("invalid source path: %w", err)
+	}
+	if err := ValidatePath(dst); err != nil {
+		return fmt.Errorf("invalid destination path: %w", err)
+	}
 	_, err := c.ExecSimple(ctx, fmt.Sprintf("ln %s %s", shellQuote(src), shellQuote(dst)))
 	return err
 }
 
 // Reflink creates a reflink (copy-on-write) from src to dst on the remote host.
 func (c *Client) Reflink(ctx context.Context, src, dst string) error {
+	if err := ValidatePath(src); err != nil {
+		return fmt.Errorf("invalid source path: %w", err)
+	}
+	if err := ValidatePath(dst); err != nil {
+		return fmt.Errorf("invalid destination path: %w", err)
+	}
 	// Try cp --reflink=always first (Linux), fall back to cp -c (macOS)
 	result, err := c.Exec(ctx, fmt.Sprintf("cp --reflink=always %s %s 2>/dev/null || cp -c %s %s", shellQuote(src), shellQuote(dst), shellQuote(src), shellQuote(dst)))
 	if err != nil {
@@ -176,12 +236,24 @@ func (c *Client) Reflink(ctx context.Context, src, dst string) error {
 
 // Copy copies a file from src to dst on the remote host.
 func (c *Client) Copy(ctx context.Context, src, dst string) error {
+	if err := ValidatePath(src); err != nil {
+		return fmt.Errorf("invalid source path: %w", err)
+	}
+	if err := ValidatePath(dst); err != nil {
+		return fmt.Errorf("invalid destination path: %w", err)
+	}
 	_, err := c.ExecSimple(ctx, fmt.Sprintf("cp %s %s", shellQuote(src), shellQuote(dst)))
 	return err
 }
 
 // Remove removes a file or directory on the remote host.
+// WARNING: This is a destructive operation. The path is validated to be absolute
+// and free of traversal elements, but callers should ensure the path is within
+// expected directories.
 func (c *Client) Remove(ctx context.Context, path string) error {
+	if err := ValidatePath(path); err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
 	_, err := c.ExecSimple(ctx, fmt.Sprintf("rm -rf %s", shellQuote(path)))
 	return err
 }
@@ -189,6 +261,17 @@ func (c *Client) Remove(ctx context.Context, path string) error {
 // Config returns the client's configuration.
 func (c *Client) Config() *Config {
 	return c.config
+}
+
+// IsAlive checks if the SSH connection is still alive by sending a keepalive request.
+func (c *Client) IsAlive() bool {
+	if c.client == nil {
+		return false
+	}
+	// SendRequest with keepalive@openssh.com is a common way to check connection health
+	// The wantReply=true ensures we wait for a response
+	_, _, err := c.client.SendRequest("keepalive@openssh.com", true, nil)
+	return err == nil
 }
 
 // loadPrivateKey loads and parses a private key file.
@@ -206,8 +289,14 @@ func loadPrivateKey(path string) (ssh.Signer, error) {
 	return signer, nil
 }
 
-// shellQuote quotes a string for safe use in shell commands.
-func shellQuote(s string) string {
+// ShellQuote quotes a string for safe use in shell commands.
+// Exported for use by transfer.go.
+func ShellQuote(s string) string {
 	// Use single quotes and escape any single quotes in the string
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+// shellQuote is an internal alias for backwards compatibility.
+func shellQuote(s string) string {
+	return ShellQuote(s)
 }

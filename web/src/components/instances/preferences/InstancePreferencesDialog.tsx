@@ -5,11 +5,12 @@
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Clock, Cog, Folder, Gauge, Radar, Settings, Upload, Wifi } from "lucide-react"
+import { Clock, Cog, Folder, FolderSync, Gauge, Radar, Settings, Upload, Wifi } from "lucide-react"
 import { AdvancedNetworkForm } from "./AdvancedNetworkForm"
 import { ConnectionSettingsForm } from "./ConnectionSettingsForm"
 import { FileManagementForm } from "./FileManagementForm"
 import { NetworkDiscoveryForm } from "./NetworkDiscoveryForm"
+import { PathMappingsEditor } from "./PathMappingsEditor"
 import { QueueManagementForm } from "./QueueManagementForm"
 import { SeedingLimitsForm } from "./SeedingLimitsForm"
 import { SpeedLimitsForm } from "./SpeedLimitsForm"
@@ -48,7 +49,7 @@ export function InstancePreferencesDialog({
         </DialogHeader>
 
         <Tabs defaultValue={defaultTab ?? "speed"} className="w-full">
-          <TabsList className="grid w-full grid-cols-7">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="speed" className="flex items-center gap-2">
               <Gauge className="h-4 w-4" />
               <span className="hidden sm:inline">Speed</span>
@@ -60,6 +61,10 @@ export function InstancePreferencesDialog({
             <TabsTrigger value="files" className="flex items-center gap-2">
               <Folder className="h-4 w-4" />
               <span className="hidden sm:inline">Files</span>
+            </TabsTrigger>
+            <TabsTrigger value="paths" className="flex items-center gap-2">
+              <FolderSync className="h-4 w-4" />
+              <span className="hidden sm:inline">Paths</span>
             </TabsTrigger>
             <TabsTrigger value="seeding" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
@@ -107,6 +112,16 @@ export function InstancePreferencesDialog({
               </p>
             </div>
             <FileManagementForm instanceId={instanceId} onSuccess={handleSuccess} />
+          </TabsContent>
+
+          <TabsContent value="paths" className="space-y-4">
+            <div className="space-y-2">
+              <h3 className="text-lg font-medium">Path Mappings</h3>
+              <p className="text-sm text-muted-foreground">
+                Configure path translations between this instance and the QUI server
+              </p>
+            </div>
+            <PathMappingsEditor instanceId={instanceId} />
           </TabsContent>
 
           <TabsContent value="seeding" className="space-y-4">

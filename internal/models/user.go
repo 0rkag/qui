@@ -82,7 +82,7 @@ func (s *UserStore) Get(ctx context.Context) (*User, error) {
 		&user.PasswordHash,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *UserStore) GetByUsername(ctx context.Context, username string) (*User, 
 		&user.PasswordHash,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {

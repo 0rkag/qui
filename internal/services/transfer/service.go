@@ -180,7 +180,7 @@ func (s *Service) MoveTorrent(ctx context.Context, req *MoveRequest) (*models.Tr
 // GetTransfer retrieves a transfer by ID
 func (s *Service) GetTransfer(ctx context.Context, id int64) (*models.Transfer, error) {
 	t, err := s.store.Get(ctx, id)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrTransferNotFound
 	} else if err != nil {
 		return nil, err

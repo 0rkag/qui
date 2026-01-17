@@ -6,6 +6,8 @@ package transfer
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
 
 	"github.com/autobrr/qui/internal/models"
 )
@@ -90,4 +92,29 @@ type TorrentFile struct {
 
 	// Size is the file size in bytes.
 	Size int64
+}
+
+// ValidateRelPath checks if a relative path is safe to use.
+// It rejects absolute paths, paths with traversal elements (..),
+// and paths that could escape the base directory.
+func ValidateRelPath(relPath string) error {
+	if relPath == "" {
+		return errors.New("relative path cannot be empty")
+	}
+	// Reject absolute paths
+	if filepath.IsAbs(relPath) {
+		return errors.New("relative path cannot be absolute")
+	}
+	// Clean the path and check for traversal
+	cleaned := filepath.Clean(relPath)
+	// After cleaning, if it starts with ".." it would escape
+	if strings.HasPrefix(cleaned, "..") {
+		return errors.New("relative path contains traversal elements")
+	}
+	// Also reject if it contains ".." anywhere after cleaning
+	// (shouldn't happen after Clean, but be defensive)
+	if strings.Contains(cleaned, "..") {
+		return errors.New("relative path contains traversal elements")
+	}
+	return nil
 }

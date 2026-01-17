@@ -6,6 +6,7 @@ package models
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -55,7 +56,7 @@ func (s *TorznabTorrentCacheStore) Fetch(ctx context.Context, indexerID int, cac
 
 	err := s.db.QueryRowContext(ctx, query, indexerID, cacheKey).Scan(&id, &data, &cachedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("fetch torrent cache: %w", err)

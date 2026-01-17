@@ -143,6 +143,48 @@ export interface InstanceError {
   occurredAt: string
 }
 
+// Instance path mappings for canonical path translation
+export interface InstancePathMapping {
+  id: number
+  instanceId: number
+  instancePath: string    // Path as seen by the qBittorrent instance
+  canonicalPath: string   // Path as seen by QUI server
+  enabled: boolean
+  description?: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InstancePathMappingCreate {
+  instancePath: string
+  canonicalPath: string
+  enabled?: boolean
+  description?: string
+  sortOrder?: number
+}
+
+export interface InstancePathMappingUpdate {
+  instancePath: string
+  canonicalPath: string
+  enabled?: boolean
+  description?: string
+  sortOrder?: number
+}
+
+export interface PathTestRequest {
+  path: string
+  direction: "to_canonical" | "from_canonical"
+}
+
+export interface PathTestResponse {
+  inputPath: string
+  outputPath: string
+  direction: string
+  matchedRule?: string
+  noMatchFound: boolean
+}
+
 // Condition field types for expression-based automations
 export type ConditionField =
   // String fields

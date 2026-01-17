@@ -43,38 +43,84 @@ func NewPool(maxIdleTime time.Duration) *Pool {
 }
 
 // Get retrieves or creates an SSH client for the given config.
+// If a cached connection exists but is dead, it will be replaced with a new one.
+//
+// Note: Due to the nature of network connections, a client that passes the
+// IsAlive() check may still fail on subsequent operations if the connection
+// dies between the check and usage. Callers should handle connection errors
+// gracefully and retry if needed.
 func (p *Pool) Get(cfg *Config) (*Client, error) {
 	key := p.configKey(cfg)
 
-	p.mu.Lock()
-	if pc, ok := p.clients[key]; ok {
-		pc.lastUsed = time.Now()
-		p.mu.Unlock()
-		return pc.client, nil
+	// First, try to get an existing live connection
+	existingClient, deadClient := p.getExisting(key)
+	if existingClient != nil {
+		return existingClient, nil
 	}
-	p.mu.Unlock()
+	// Close dead client outside the lock
+	if deadClient != nil {
+		deadClient.Close()
+	}
 
-	// Create new client outside the lock
+	// Create new client outside the lock to avoid blocking other goroutines
 	client, err := New(cfg)
 	if err != nil {
 		return nil, err
 	}
 
+	// Try to store the new client, but another goroutine may have beat us
+	if winner := p.storeIfAbsent(key, client); winner != nil {
+		// Another goroutine created a client first, use theirs
+		client.Close()
+		return winner, nil
+	}
+
+	return client, nil
+}
+
+// getExisting returns an existing live client, or the dead client to close.
+// Returns (liveClient, nil) if found alive, (nil, deadClient) if found dead,
+// or (nil, nil) if not found.
+func (p *Pool) getExisting(key string) (live *Client, dead *Client) {
 	p.mu.Lock()
-	// Check again in case another goroutine created it
-	if pc, ok := p.clients[key]; ok {
-		p.mu.Unlock()
-		client.Close() // Close the one we just created
+	defer p.mu.Unlock()
+
+	pc, ok := p.clients[key]
+	if !ok {
+		return nil, nil
+	}
+
+	if pc.client.IsAlive() {
+		pc.lastUsed = time.Now()
 		return pc.client, nil
+	}
+
+	// Connection is dead, remove from pool
+	delete(p.clients, key)
+	return nil, pc.client
+}
+
+// storeIfAbsent stores the client if no live client exists for the key.
+// Returns nil if stored successfully, or the existing live client if one was found.
+func (p *Pool) storeIfAbsent(key string, client *Client) *Client {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Check if another goroutine added a client while we were creating ours
+	if pc, ok := p.clients[key]; ok {
+		if pc.client.IsAlive() {
+			return pc.client
+		}
+		// The other client is also dead, close it async and use ours
+		delete(p.clients, key)
+		go pc.client.Close()
 	}
 
 	p.clients[key] = &pooledClient{
 		client:   client,
 		lastUsed: time.Now(),
 	}
-	p.mu.Unlock()
-
-	return client, nil
+	return nil
 }
 
 // Release marks a client as no longer in use.
@@ -94,8 +140,10 @@ func (p *Pool) Close() error {
 
 	var lastErr error
 	for key, pc := range p.clients {
-		if err := pc.client.Close(); err != nil {
-			lastErr = err
+		if pc.client != nil {
+			if err := pc.client.Close(); err != nil {
+				lastErr = err
+			}
 		}
 		delete(p.clients, key)
 	}
@@ -111,7 +159,9 @@ func (p *Pool) Remove(cfg *Config) error {
 
 	if pc, ok := p.clients[key]; ok {
 		delete(p.clients, key)
-		return pc.client.Close()
+		if pc.client != nil {
+			return pc.client.Close()
+		}
 	}
 	return nil
 }
@@ -151,14 +201,23 @@ func (p *Pool) cleanupLoop() {
 }
 
 func (p *Pool) cleanup() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	// Collect stale clients while holding the lock
+	var toClose []*Client
 
+	p.mu.Lock()
 	now := time.Now()
 	for key, pc := range p.clients {
 		if now.Sub(pc.lastUsed) > p.maxIdle {
-			pc.client.Close()
+			toClose = append(toClose, pc.client)
 			delete(p.clients, key)
+		}
+	}
+	p.mu.Unlock()
+
+	// Close connections outside the lock to avoid blocking
+	for _, client := range toClose {
+		if client != nil {
+			client.Close()
 		}
 	}
 }

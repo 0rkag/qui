@@ -110,9 +110,13 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 		TargetInstance: targetInstance,
 	}
 
-	// 8. Build file list
+	// 8. Build file list with path validation
 	result.Files = make([]TorrentFile, 0, len(*files))
 	for _, f := range *files {
+		// Validate relative path to prevent path traversal attacks
+		if err := ValidateRelPath(f.Name); err != nil {
+			return nil, fmt.Errorf("unsafe file path in torrent %q: %w", f.Name, err)
+		}
 		result.Files = append(result.Files, TorrentFile{
 			RelPath: f.Name,
 			AbsPath: filepath.Join(props.SavePath, f.Name),
@@ -143,7 +147,7 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 			t.PathMappings,
 		)
 		if err != nil {
-			log.Warn().Err(err).Msg("[TRANSFER] Path resolution failed, falling back to legacy method")
+			log.Warn().Err(err).Msg("[TRANSFER-LOCAL] Path resolution failed, falling back to legacy method")
 			result.TargetSavePath = e.computeTargetPath(props.SavePath, targetInstance, t.PathMappings)
 		} else {
 			result.TargetSavePath = resolvedPath
@@ -182,7 +186,7 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 		Str("targetPath", result.TargetSavePath).
 		Str("linkMode", result.LinkMode).
 		Int("files", len(result.Files)).
-		Msg("[TRANSFER] Prepared transfer")
+		Msg("[TRANSFER-LOCAL] Prepared transfer")
 
 	return result, nil
 }
@@ -191,7 +195,7 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 func (e *LocalExecutor) CreateLinks(ctx context.Context, t *models.Transfer, prep *PrepareResult) (int, error) {
 	// Direct mode - skip link creation
 	if prep.LinkMode == "direct" {
-		log.Debug().Int64("id", t.ID).Msg("[TRANSFER] Direct mode - skipping link creation")
+		log.Debug().Int64("id", t.ID).Msg("[TRANSFER-LOCAL] Direct mode - skipping link creation")
 		return 0, nil
 	}
 
@@ -245,7 +249,7 @@ func (e *LocalExecutor) CreateLinks(ctx context.Context, t *models.Transfer, pre
 				log.Warn().
 					Err(err).
 					Int64("id", t.ID).
-					Msg("[TRANSFER] Reflink failed, copy fallback not implemented")
+					Msg("[TRANSFER-LOCAL] Reflink failed, copy fallback not implemented")
 				return 0, fmt.Errorf("reflink failed and copy fallback not implemented: %w", err)
 			}
 			return 0, fmt.Errorf("failed to create reflinks: %w", err)
@@ -258,7 +262,7 @@ func (e *LocalExecutor) CreateLinks(ctx context.Context, t *models.Transfer, pre
 		Int64("id", t.ID).
 		Int("files", len(plan.Files)).
 		Str("destDir", destDir).
-		Msg("[TRANSFER] Created file links")
+		Msg("[TRANSFER-LOCAL] Created file links")
 
 	return len(plan.Files), nil
 }
@@ -297,7 +301,7 @@ func (e *LocalExecutor) AddTorrent(ctx context.Context, t *models.Transfer, prep
 		Int64("id", t.ID).
 		Str("hash", t.TorrentHash).
 		Int("targetInstance", t.TargetInstanceID).
-		Msg("[TRANSFER] Added torrent to target instance")
+		Msg("[TRANSFER-LOCAL] Added torrent to target instance")
 
 	return nil
 }
@@ -312,7 +316,7 @@ func (e *LocalExecutor) DeleteSource(ctx context.Context, t *models.Transfer) er
 	log.Info().
 		Int64("id", t.ID).
 		Int("sourceInstance", t.SourceInstanceID).
-		Msg("[TRANSFER] Deleted torrent from source instance")
+		Msg("[TRANSFER-LOCAL] Deleted torrent from source instance")
 
 	return nil
 }
@@ -323,7 +327,7 @@ func (e *LocalExecutor) Rollback(ctx context.Context, t *models.Transfer, prep *
 		return nil
 	}
 
-	log.Debug().Int64("id", t.ID).Str("path", prep.TargetSavePath).Str("mode", prep.LinkMode).Msg("[TRANSFER] Rolling back links")
+	log.Debug().Int64("id", t.ID).Str("path", prep.TargetSavePath).Str("mode", prep.LinkMode).Msg("[TRANSFER-LOCAL] Rolling back links")
 
 	// Build plan just for rollback
 	plan := &hardlinktree.TreePlan{
@@ -338,7 +342,7 @@ func (e *LocalExecutor) Rollback(ctx context.Context, t *models.Transfer, prep *
 
 	// Rollback works the same way for both hardlinks and reflinks
 	if err := hardlinktree.Rollback(plan); err != nil {
-		log.Warn().Err(err).Int64("id", t.ID).Str("mode", prep.LinkMode).Msg("[TRANSFER] Rollback failed")
+		log.Warn().Err(err).Int64("id", t.ID).Str("mode", prep.LinkMode).Msg("[TRANSFER-LOCAL] Rollback failed")
 		return err
 	}
 

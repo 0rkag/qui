@@ -7,10 +7,20 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/autobrr/qui/internal/dbinterface"
+)
+
+// Validation patterns for connection configuration
+var (
+	// validConnUsername allows alphanumeric, underscore, hyphen, and dot
+	validConnUsername = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$`)
+	// validConnHostname allows alphanumeric, hyphen, dot, and brackets for IPv6
+	validConnHostname = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-:\[\]]*$`)
 )
 
 // Connection protocol types
@@ -52,15 +62,67 @@ func (c *InstanceConnection) Validate() error {
 	if c.Protocol != ProtocolSSH && c.Protocol != ProtocolSFTP && c.Protocol != ProtocolFTP {
 		return ErrUnsupportedProtocol
 	}
-	if strings.TrimSpace(c.Host) == "" {
+
+	// Validate host format
+	host := strings.TrimSpace(c.Host)
+	if host == "" {
 		return errors.New("host is required")
 	}
+	if len(host) > 253 {
+		return errors.New("host too long (max 253 chars)")
+	}
+	if !validConnHostname.MatchString(host) {
+		return errors.New("host contains invalid characters")
+	}
+	c.Host = host
+
 	if c.Port <= 0 || c.Port > 65535 {
 		return errors.New("port must be between 1 and 65535")
 	}
-	if strings.TrimSpace(c.Username) == "" {
+
+	// Validate username format
+	username := strings.TrimSpace(c.Username)
+	if username == "" {
 		return errors.New("username is required")
 	}
+	if len(username) > 64 {
+		return errors.New("username too long (max 64 chars)")
+	}
+	if !validConnUsername.MatchString(username) {
+		return errors.New("username contains invalid characters")
+	}
+	c.Username = username
+
+	// Validate private key path if provided
+	if c.PrivateKeyPath != "" {
+		if err := validatePrivateKeyPath(c.PrivateKeyPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validatePrivateKeyPath checks that a private key path is safe.
+func validatePrivateKeyPath(path string) error {
+	// Clean the path to resolve any . or ..
+	cleaned := filepath.Clean(path)
+
+	// Check for path traversal attempts
+	if strings.Contains(cleaned, "..") {
+		return errors.New("private key path contains path traversal")
+	}
+
+	// Must be an absolute path
+	if !filepath.IsAbs(cleaned) {
+		return errors.New("private key path must be absolute")
+	}
+
+	// Check path length
+	if len(cleaned) > 4096 {
+		return errors.New("private key path too long")
+	}
+
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -442,7 +443,7 @@ func (h *Handler) prepareProxyContext(r *http.Request) (*proxyContext, error) {
 
 	instance, err := h.instanceStore.Get(ctx, instanceID)
 	if err != nil {
-		if err == models.ErrInstanceNotFound {
+		if errors.Is(err, models.ErrInstanceNotFound) {
 			logger.Warn().Msg("Instance not found for proxy request")
 		} else {
 			logger.Error().Err(err).Msg("Failed to load instance for proxy request")

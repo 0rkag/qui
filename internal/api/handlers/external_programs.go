@@ -6,6 +6,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -139,7 +140,7 @@ func (h *ExternalProgramsHandler) UpdateExternalProgram(w http.ResponseWriter, r
 	ctx := r.Context()
 	program, err := h.externalProgramStore.Update(ctx, id, &req)
 	if err != nil {
-		if err == models.ErrExternalProgramNotFound {
+		if errors.Is(err, models.ErrExternalProgramNotFound) {
 			http.Error(w, "Program not found", http.StatusNotFound)
 			return
 		}
@@ -172,7 +173,7 @@ func (h *ExternalProgramsHandler) DeleteExternalProgram(w http.ResponseWriter, r
 
 	ctx := r.Context()
 	if err := h.externalProgramStore.Delete(ctx, id); err != nil {
-		if err == models.ErrExternalProgramNotFound {
+		if errors.Is(err, models.ErrExternalProgramNotFound) {
 			http.Error(w, "Program not found", http.StatusNotFound)
 			return
 		}
@@ -214,7 +215,7 @@ func (h *ExternalProgramsHandler) ExecuteExternalProgram(w http.ResponseWriter, 
 	// Get the program configuration
 	program, err := h.externalProgramStore.GetByID(ctx, req.ProgramID)
 	if err != nil {
-		if err == models.ErrExternalProgramNotFound {
+		if errors.Is(err, models.ErrExternalProgramNotFound) {
 			http.Error(w, "Program not found", http.StatusNotFound)
 			return
 		}

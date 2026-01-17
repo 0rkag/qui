@@ -57,6 +57,11 @@ import type {
   InstanceReannounceActivity,
   InstanceReannounceCandidate,
   InstanceResponse,
+  InstancePathMapping,
+  InstancePathMappingCreate,
+  InstancePathMappingUpdate,
+  PathTestRequest,
+  PathTestResponse,
   LocalCrossSeedMatch,
   LogExclusions,
   LogExclusionsInput,
@@ -592,6 +597,42 @@ class ApiClient {
     return withBasePath(`/api/instances/${instanceId}/backups/runs/${runId}/items/${encodedHash}/download`)
   }
 
+  // Instance path mappings endpoints
+  async getPathMappings(instanceId: number): Promise<InstancePathMapping[]> {
+    return this.request<InstancePathMapping[]>(`/instances/${instanceId}/path-mappings`)
+  }
+
+  async createPathMapping(instanceId: number, data: InstancePathMappingCreate): Promise<InstancePathMapping> {
+    return this.request<InstancePathMapping>(`/instances/${instanceId}/path-mappings`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updatePathMapping(instanceId: number, mappingId: number, data: InstancePathMappingUpdate): Promise<InstancePathMapping> {
+    return this.request<InstancePathMapping>(`/instances/${instanceId}/path-mappings/${mappingId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async deletePathMapping(instanceId: number, mappingId: number): Promise<void> {
+    return this.request(`/instances/${instanceId}/path-mappings/${mappingId}`, { method: "DELETE" })
+  }
+
+  async reorderPathMappings(instanceId: number, orders: Record<number, number>): Promise<void> {
+    return this.request(`/instances/${instanceId}/path-mappings/reorder`, {
+      method: "PUT",
+      body: JSON.stringify({ orders }),
+    })
+  }
+
+  async testPathMapping(instanceId: number, data: PathTestRequest): Promise<PathTestResponse> {
+    return this.request<PathTestResponse>(`/instances/${instanceId}/path-mappings/test`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
 
   // Torrent endpoints
   async getTorrents(
@@ -2325,7 +2366,7 @@ class ApiClient {
       state: raw.state as Transfer["state"],
       sourceSavePath: raw.sourceSavePath ?? raw.source_save_path,
       targetSavePath: raw.targetSavePath ?? raw.target_save_path,
-      linkMode: raw.linkMode ?? raw.link_mode,
+      linkMode: (raw.linkMode ?? raw.link_mode) as Transfer["linkMode"],
       deleteFromSource: raw.deleteFromSource ?? raw.delete_from_source ?? false,
       preserveCategory: raw.preserveCategory ?? raw.preserve_category ?? false,
       preserveTags: raw.preserveTags ?? raw.preserve_tags ?? false,

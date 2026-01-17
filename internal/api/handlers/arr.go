@@ -5,6 +5,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -72,7 +73,7 @@ func (h *ArrHandler) GetInstance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	instance, err := h.instanceStore.Get(ctx, id)
 	if err != nil {
-		if err == models.ErrArrInstanceNotFound {
+		if errors.Is(err, models.ErrArrInstanceNotFound) {
 			RespondError(w, http.StatusNotFound, "ARR instance not found")
 			return
 		}
@@ -206,7 +207,7 @@ func (h *ArrHandler) UpdateInstance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	instance, err := h.instanceStore.Update(ctx, id, params)
 	if err != nil {
-		if err == models.ErrArrInstanceNotFound {
+		if errors.Is(err, models.ErrArrInstanceNotFound) {
 			RespondError(w, http.StatusNotFound, "ARR instance not found")
 			return
 		}
@@ -241,7 +242,7 @@ func (h *ArrHandler) DeleteInstance(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	if err := h.instanceStore.Delete(ctx, id); err != nil {
-		if err == models.ErrArrInstanceNotFound {
+		if errors.Is(err, models.ErrArrInstanceNotFound) {
 			RespondError(w, http.StatusNotFound, "ARR instance not found")
 			return
 		}

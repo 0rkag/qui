@@ -6,6 +6,7 @@ package dbinterface
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -304,7 +305,7 @@ func GetStringID(ctx context.Context, tx TxQuerier, values ...string) ([]sql.Nul
 		var id int64
 		err := tx.QueryRowContext(ctx, "SELECT id FROM string_pool WHERE value = ?", values[0]).Scan(&id)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				return []sql.NullInt64{{Valid: false}}, nil
 			}
 			return nil, fmt.Errorf("failed to get string ID from pool: %w", err)

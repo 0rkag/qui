@@ -105,9 +105,13 @@ func (e *SSHExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepare
 		TargetInstance: targetInstance,
 	}
 
-	// 7. Build file list
+	// 7. Build file list with path validation
 	result.Files = make([]TorrentFile, 0, len(*files))
 	for _, f := range *files {
+		// Validate relative path to prevent path traversal attacks
+		if err := ValidateRelPath(f.Name); err != nil {
+			return nil, fmt.Errorf("unsafe file path in torrent %q: %w", f.Name, err)
+		}
 		result.Files = append(result.Files, TorrentFile{
 			RelPath: f.Name,
 			AbsPath: filepath.Join(props.SavePath, f.Name),

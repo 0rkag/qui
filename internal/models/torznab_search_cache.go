@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -119,7 +120,7 @@ func (s *TorznabSearchCacheStore) Fetch(ctx context.Context, cacheKey string) (*
 		&hitCount,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("fetch torznab search cache: %w", err)
@@ -517,7 +518,7 @@ func (s *TorznabSearchCacheStore) GetSettings(ctx context.Context) (*TorznabSear
 
 	err := s.db.QueryRowContext(ctx, query).Scan(&ttlMinutes, &updatedRaw)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get torznab search cache settings: %w", err)
