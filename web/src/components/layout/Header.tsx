@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils"
 import type { InstanceCapabilities } from "@/types"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation, useNavigate, useSearch } from "@tanstack/react-router"
-import { Archive, ChevronsUpDown, Download, EllipsisVertical, FileEdit, FunnelPlus, FunnelX, GitBranch, HardDrive, Home, Info, ListTodo, Loader2, LogOut, Menu, Plus, Rss, Search, SearchCode, Server, Settings, X, Zap } from "lucide-react"
+import { Archive, ChevronsUpDown, Download, EllipsisVertical, FileEdit, FunnelPlus, FunnelX, GitBranch, HardDrive, Home, Info, ListTodo, Loader2, LogOut, Menu, Palette, Plus, Rss, Search, SearchCode, Server, Settings, X, Zap } from "lucide-react"
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useHotkeys } from "react-hotkeys-hook"
 
@@ -178,18 +178,17 @@ export function Header({
   const smInnerHeight = viewMode === "dense" ? "sm:h-10 lg:h-auto" : "sm:h-12 lg:h-auto"
 
   return (
-    <header className={cn("sticky top-0 z-50 flex flex-wrap lg:flex-nowrap items-start lg:items-center justify-between border-b bg-background px-2 md:pl-4 md:pr-4 lg:pl-0 lg:static py-2 lg:py-0", headerHeight)}>
-      <div className={cn("flex items-center gap-2 mr-2 order-1 lg:order-none", innerHeight)}>
+    <header className={cn("sticky top-0 z-50 flex flex-wrap lg:flex-nowrap items-center justify-between border-b bg-background px-4 md:pl-4 md:pr-4 lg:pl-0 lg:static py-2 lg:py-0", headerHeight)}>
+      <div className={cn("flex items-center gap-2 mr-2 order-first sm:order-1 lg:order-none", innerHeight)}>
         {children}
         {instanceName && hasMultipleActiveInstances ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 className={cn(
-                  "group flex items-center gap-2 pl-2 sm:pl-0 text-xl font-semibold transition-opacity duration-300 hover:opacity-90 rounded-sm px-1 -mx-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "group flex items-center gap-2 text-xl font-semibold transition-opacity duration-300 hover:opacity-90 rounded-sm px-1 -mx-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   "lg:hidden", // Hidden on desktop by default
-                  sidebarCollapsed && "lg:flex", // Visible on desktop when sidebar collapsed
-                  !shouldShowQuiOnMobile && "hidden sm:flex" // Hide on mobile when on instance routes
+                  sidebarCollapsed && "lg:flex" // Visible on desktop when sidebar collapsed
                 )}
                 aria-label={`Current instance: ${instanceName}. Click to switch instances.`}
                 aria-haspopup="menu"
@@ -244,10 +243,9 @@ export function Header({
           </DropdownMenu>
         ) : (
           <h1 className={cn(
-            "flex items-center gap-2 pl-2 sm:pl-0 text-xl font-semibold",
+            "flex items-center gap-2 text-xl font-semibold",
             "lg:hidden", // Hidden on desktop by default
-            sidebarCollapsed && "lg:flex", // Visible on desktop when sidebar collapsed
-            !shouldShowQuiOnMobile && "hidden sm:flex" // Hide on mobile when on instance routes
+            sidebarCollapsed && "lg:flex" // Visible on desktop when sidebar collapsed
           )}>
             {theme === "swizzin" ? (
               <SwizzinLogo className="h-5 w-5" />
@@ -263,10 +261,10 @@ export function Header({
         )}
       </div>
 
-      {/* Navigation buttons - visible when sidebar is hidden */}
+      {/* Navigation buttons - hidden on mobile, visible from sm up when sidebar is hidden */}
       <nav
         className={cn(
-          "flex items-center gap-1 order-2 lg:order-none",
+          "hidden sm:flex items-center gap-1 order-2 lg:order-none",
           innerHeight,
           sidebarCollapsed ? "lg:flex lg:ml-2" : "lg:hidden"
         )}
@@ -457,7 +455,7 @@ export function Header({
                     }}
                   >
                     <ListTodo className="mr-2 h-4 w-4" />
-                    Creation Tasks
+                    Torrent Creation Queue
                     {activeTaskCount > 0 && (
                       <Badge variant="secondary" className="ml-auto">
                         {activeTaskCount}
@@ -534,14 +532,12 @@ export function Header({
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
                     <div className="space-y-2 text-xs">
-                      <p className="font-semibold">Smart Search Features:</p>
+                      <p className="font-semibold">Search tips</p>
                       <ul className="space-y-1 ml-2">
-                        <li>• <strong>Glob patterns:</strong> *.mkv, *1080p*, *S??E??*</li>
-                        <li>• <strong>Fuzzy matching:</strong> "breaking bad" finds "Breaking.Bad"</li>
-                        <li>• Handles dots, underscores, and brackets</li>
+                        <li>• Use * as wildcard: <strong>*.mkv</strong> or <strong>*1080p*</strong></li>
+                        <li>• Spaces work: "breaking bad" finds "Breaking.Bad"</li>
                         <li>• Searches name, category, and tags</li>
-                        <li>• Press Enter for instant search</li>
-                        <li>• Auto-searches after 500ms pause</li>
+                        <li>• Press Enter or wait to search</li>
                       </ul>
                     </div>
                   </TooltipContent>
@@ -554,16 +550,21 @@ export function Header({
       )}
 
 
-      <div className={cn("grid grid-cols-[auto_auto] items-center gap-1 sm:order-4 lg:order-none", smInnerHeight)}>
-        <ThemeToggle />
+      <div className={cn("flex items-center gap-1 order-last sm:order-4 lg:order-none ml-auto", smInnerHeight)}>
+        {/* Theme toggle - hidden on mobile, shown in hamburger menu instead */}
+        <div className="hidden sm:block">
+          <ThemeToggle />
+        </div>
+        {/* Hamburger menu - visible on mobile (<sm), hidden sm-lg, visible on lg+ only when sidebar collapsed */}
         <div className={cn(
-          "transition-[width,opacity] duration-300 ease-out overflow-hidden",
-          sidebarCollapsed ? "w-10 opacity-100" : "w-0 opacity-0"
+          "sm:hidden", // Hide from sm breakpoint up by default
+          "lg:block lg:transition-[width,opacity] lg:duration-300 lg:ease-out lg:overflow-hidden", // Show on lg+ with animation
+          sidebarCollapsed ? "lg:w-10 lg:opacity-100" : "lg:w-0 lg:opacity-0"
         )}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="hover:bg-muted hover:text-foreground transition-colors relative">
-                <Menu className="h-4 w-4" aria-hidden="true" />
+              <Button variant="ghost" size="icon" className="h-12 w-12 hover:bg-muted hover:text-foreground transition-colors relative">
+                <Menu className="h-6 w-6" aria-hidden="true" />
                 {updateInfo && (
                   <span
                     className="absolute top-1 right-1 h-2 w-2 bg-success rounded-full"
@@ -676,7 +677,7 @@ export function Header({
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
-                                  RSS {csState?.rssRunning ? "running" : "enabled"}
+                                  {csState?.rssRunning ? "Cross-seed RSS scanning..." : "Cross-seed RSS active"}
                                 </TooltipContent>
                               </Tooltip>
                             )}
@@ -688,7 +689,7 @@ export function Header({
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent side="left" className="text-xs">
-                                  Scan running
+                                  Cross-seed scan in progress...
                                 </TooltipContent>
                               </Tooltip>
                             )}
@@ -708,6 +709,17 @@ export function Header({
                 </>
               )}
               <DropdownMenuSeparator />
+              {/* Appearance - only shown on mobile where ThemeToggle is hidden */}
+              <DropdownMenuItem asChild className="sm:hidden">
+                <Link
+                  to="/settings"
+                  search={{ tab: "themes" }}
+                  className="flex cursor-pointer"
+                >
+                  <Palette className="mr-2 h-4 w-4" />
+                  Appearance
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link
                   to="/settings"

@@ -194,7 +194,7 @@ export function Sidebar() {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent side="right" className="text-xs">
-                            RSS {csState?.rssRunning ? "running" : "enabled"}
+                            {csState?.rssRunning ? "Cross-seed RSS scanning..." : "Cross-seed RSS active"}
                           </TooltipContent>
                         </Tooltip>
                       )}
@@ -209,7 +209,7 @@ export function Sidebar() {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent side="right" className="text-xs">
-                            Scan running
+                            Cross-seed scan in progress...
                           </TooltipContent>
                         </Tooltip>
                       )}
@@ -226,9 +226,23 @@ export function Sidebar() {
                 )
               })}
               {activeInstances.length === 0 && (
-                <p className="px-3 py-2 text-sm text-muted-foreground">
-                  {hasConfiguredInstances ? "All instances are disabled" : "No instances configured"}
-                </p>
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  {hasConfiguredInstances ? (
+                    <>
+                      <p>All instances are disabled.</p>
+                      <Link to="/settings" search={{ tab: "instances" }} className="text-primary hover:underline">
+                        Enable in Settings
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <p>No torrent clients added yet.</p>
+                      <Link to="/settings" search={{ tab: "instances" }} className="text-primary hover:underline">
+                        Add your first client
+                      </Link>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>
