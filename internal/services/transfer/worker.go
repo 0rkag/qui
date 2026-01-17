@@ -290,8 +290,10 @@ func (s *Service) requeueTransfer(t *models.Transfer) {
 func (s *Service) updateState(ctx context.Context, t *models.Transfer, state models.TransferState, errorMsg string) {
 	t.State = state
 	t.Error = errorMsg
-	if err := s.store.UpdateState(ctx, t.ID, state, errorMsg); err != nil {
-		log.Error().Err(err).Int64("id", t.ID).Str("state", string(state)).Msg("[TRANSFER] Failed to update state")
+	if s.store != nil {
+		if err := s.store.UpdateState(ctx, t.ID, state, errorMsg); err != nil {
+			log.Error().Err(err).Int64("id", t.ID).Str("state", string(state)).Msg("[TRANSFER] Failed to update state")
+		}
 	}
 }
 
@@ -304,9 +306,11 @@ func (s *Service) markCompleted(ctx context.Context, t *models.Transfer) {
 	now := time.Now().UTC()
 	t.CompletedAt = &now
 	t.State = models.TransferStateCompleted
-	if err := s.store.Update(ctx, t); err != nil {
-		log.Error().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Failed to mark completed")
-		return
+	if s.store != nil {
+		if err := s.store.Update(ctx, t); err != nil {
+			log.Error().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Failed to mark completed")
+			return
+		}
 	}
 	log.Info().
 		Int64("id", t.ID).

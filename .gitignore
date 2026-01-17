@@ -71,3 +71,5 @@ backups/*
 .golangci-cache/*
 torrentfiles/*
 analyses/*
+qbit2/
+qbit1/
