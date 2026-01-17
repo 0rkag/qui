@@ -4,7 +4,6 @@
  */
 
 import { TorrentManagementBar } from "@/components/torrents/TorrentManagementBar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -31,14 +30,12 @@ import { useCrossSeedInstanceState } from "@/hooks/useCrossSeedInstanceState"
 import { useDebounce } from "@/hooks/useDebounce"
 import { useInstances } from "@/hooks/useInstances"
 import { usePersistedCompactViewState } from "@/hooks/usePersistedCompactViewState"
-import { usePersistedFilterSidebarState } from "@/hooks/usePersistedFilterSidebarState"
 import { useTheme } from "@/hooks/useTheme"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import type { InstanceCapabilities } from "@/types"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation, useNavigate, useSearch } from "@tanstack/react-router"
-import { Archive, ChevronsUpDown, Download, EllipsisVertical, FileEdit, FunnelPlus, FunnelX, GitBranch, HardDrive, Home, Info, ListTodo, Loader2, LogOut, Menu, Palette, Plus, Rss, Search, SearchCode, Server, Settings, X, Zap } from "lucide-react"
+import { Archive, ChevronsUpDown, Download, GitBranch, HardDrive, Home, Info, Loader2, LogOut, Menu, Palette, Rss, Search, SearchCode, Server, Settings, X, Zap } from "lucide-react"
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useHotkeys } from "react-hotkeys-hook"
 
@@ -73,7 +70,6 @@ export function Header({
   const isInstanceRoute = selectedInstanceId !== null
   const shouldShowInstanceControls = layoutRouteState.showInstanceControls && isInstanceRoute
 
-  const shouldShowQuiOnMobile = !isInstanceRoute
   const [searchValue, setSearchValue] = useState<string>(routeSearch?.q || "")
   const debouncedSearch = useDebounce(searchValue, 500)
   const { instances } = useInstances()
@@ -81,7 +77,6 @@ export function Header({
     () => (instances ?? []).filter(instance => instance.isActive),
     [instances]
   )
-
 
   const instanceName = useMemo(() => {
     if (!isInstanceRoute || !instances || selectedInstanceId === null) return null
@@ -107,19 +102,7 @@ export function Header({
   }, [debouncedSearch, shouldShowInstanceControls])
 
   const isGlobSearch = !!searchValue && /[*?[\]]/.test(searchValue)
-  const [filterSidebarCollapsed, setFilterSidebarCollapsed] = usePersistedFilterSidebarState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const lastFilterToggleRef = useRef(0)
-
-  const handleToggleFilters = useCallback(() => {
-    const now = Date.now()
-    if (now - lastFilterToggleRef.current < 250) {
-      return
-    }
-
-    lastFilterToggleRef.current = now
-    setFilterSidebarCollapsed((prev) => !prev)
-  }, [setFilterSidebarCollapsed])
 
   // Detect platform for appropriate key display
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
@@ -142,15 +125,6 @@ export function Header({
   const { theme } = useTheme()
   const { viewMode } = usePersistedCompactViewState("normal")
 
-  // Query active task count for badge (lightweight endpoint, only for instance routes)
-  const { data: activeTaskCount = 0 } = useQuery({
-    queryKey: ["active-task-count", selectedInstanceId],
-    queryFn: () => selectedInstanceId !== null ? api.getActiveTaskCount(selectedInstanceId) : Promise.resolve(0),
-    enabled: shouldShowInstanceControls && selectedInstanceId !== null,
-    refetchInterval: 30000, // Poll every 30 seconds (lightweight check)
-    refetchIntervalInBackground: true,
-  })
-
   // Query for available updates
   const { data: updateInfo } = useQuery({
     queryKey: ["latest-version"],
@@ -159,16 +133,6 @@ export function Header({
     refetchOnMount: false,
     refetchOnWindowFocus: false,
   })
-
-  // Query instance capabilities via the dedicated lightweight endpoint
-  const { data: instanceCapabilities } = useQuery<InstanceCapabilities>({
-    queryKey: ["instance-capabilities", selectedInstanceId],
-    queryFn: () => api.getInstanceCapabilities(selectedInstanceId!),
-    enabled: shouldShowInstanceControls && selectedInstanceId !== null,
-    staleTime: 300000, // Cache for 5 minutes (capabilities don't change often)
-  })
-
-  const supportsTorrentCreation = instanceCapabilities?.supportsTorrentCreation ?? true
 
   const { state: crossSeedInstanceState } = useCrossSeedInstanceState()
 
@@ -223,7 +187,7 @@ export function Header({
                           instance.id === selectedInstanceId ? "bg-accent text-accent-foreground font-medium" : "hover:bg-accent/80 data-[highlighted]:bg-accent/80 text-foreground"
                         )}
                       >
-                        <HardDrive className="h-4 w-4 flex-shrink-0" />
+                        <HardDrive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
                         <span className="flex-1 truncate">{instance.name}</span>
                         <span
                           className={cn(
@@ -394,77 +358,8 @@ export function Header({
       {/* Instance route - search on right */}
       {shouldShowInstanceControls && (
         <div className={cn("flex items-center flex-1 gap-2 sm:order-3 lg:order-none", smInnerHeight)}>
-
-          {/* Right side: Actions menu and Search bar */}
+          {/* Search bar */}
           <div className="flex items-center gap-2 flex-1 justify-end mr-2">
-            {/* Actions dropdown menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8 min-h-[44px] min-w-[44px] relative"
-                  aria-label={activeTaskCount > 0 ? `Actions menu, ${activeTaskCount} active task${activeTaskCount !== 1 ? 's' : ''}` : "Actions menu"}
-                >
-                  <EllipsisVertical className="h-4 w-4" aria-hidden="true" />
-                  {activeTaskCount > 0 && (
-                    <span
-                      className="absolute -top-1 -right-1 h-4 min-w-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium"
-                      aria-hidden="true"
-                    >
-                      {activeTaskCount}
-                    </span>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={handleToggleFilters}>
-                  {filterSidebarCollapsed ? (
-                    <FunnelPlus className="mr-2 h-4 w-4" />
-                  ) : (
-                    <FunnelX className="mr-2 h-4 w-4" />
-                  )}
-                  {filterSidebarCollapsed ? "Show Filters" : "Hide Filters"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    const next = { ...(routeSearch || {}), modal: "add-torrent" }
-                    navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Torrent
-                </DropdownMenuItem>
-                {supportsTorrentCreation && (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      const next = { ...(routeSearch || {}), modal: "create-torrent" }
-                      navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
-                    }}
-                  >
-                    <FileEdit className="mr-2 h-4 w-4" />
-                    Create Torrent
-                  </DropdownMenuItem>
-                )}
-                {supportsTorrentCreation && (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      const next = { ...(routeSearch || {}), modal: "tasks" }
-                      navigate({ search: next as any, replace: true }) // eslint-disable-line @typescript-eslint/no-explicit-any
-                    }}
-                  >
-                    <ListTodo className="mr-2 h-4 w-4" />
-                    Torrent Creation Queue
-                    {activeTaskCount > 0 && (
-                      <Badge variant="secondary" className="ml-auto">
-                        {activeTaskCount}
-                      </Badge>
-                    )}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
             {/* Search bar - will-change applied via focus-within to avoid permanent compositor layer */}
             <div className="relative flex-1 min-w-0 md:w-62 md:flex-initial md:focus-within:w-full md:focus-within:will-change-[width] max-w-md transition-[width] duration-100 ease-out">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" aria-hidden="true" />
@@ -493,8 +388,11 @@ export function Header({
                     }, 100)
                   }
                 }}
-                className={`w-full pl-9 pr-16 transition-[box-shadow,border-color] duration-200 text-xs ${searchValue ? "ring-1 ring-primary/50" : ""
-                  } ${isGlobSearch ? "ring-1 ring-primary" : ""}`}
+                className={cn(
+                  "w-full pl-9 pr-16 transition-[box-shadow,border-color] duration-200 text-xs",
+                  searchValue && "ring-1 ring-primary/50",
+                  isGlobSearch && "ring-1 ring-primary"
+                )}
               />
               <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                 {/* Clear search button */}
@@ -549,7 +447,6 @@ export function Header({
         </div>
       )}
 
-
       <div className={cn("flex items-center gap-1 order-last sm:order-4 lg:order-none ml-auto", smInnerHeight)}>
         {/* Theme toggle - hidden on mobile, shown in hamburger menu instead */}
         <div className="hidden sm:block">
@@ -563,12 +460,17 @@ export function Header({
         )}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-12 w-12 hover:bg-muted hover:text-foreground transition-colors relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-12 w-12 hover:bg-muted hover:text-foreground transition-colors relative"
+                aria-label={updateInfo ? "Open menu (update available)" : "Open menu"}
+              >
                 <Menu className="h-6 w-6" aria-hidden="true" />
                 {updateInfo && (
                   <span
                     className="absolute top-1 right-1 h-2 w-2 bg-success rounded-full"
-                    aria-label="Update available"
+                    aria-hidden="true"
                   />
                 )}
               </Button>
@@ -598,7 +500,7 @@ export function Header({
                   to="/dashboard"
                   className="flex cursor-pointer"
                 >
-                  <Home className="mr-2 h-4 w-4" />
+                  <Home className="mr-2 h-4 w-4" aria-hidden="true" />
                   Dashboard
                 </Link>
               </DropdownMenuItem>
@@ -607,7 +509,7 @@ export function Header({
                   to="/search"
                   className="flex cursor-pointer"
                 >
-                  <Search className="mr-2 h-4 w-4" />
+                  <Search className="mr-2 h-4 w-4" aria-hidden="true" />
                   Search
                 </Link>
               </DropdownMenuItem>
@@ -616,7 +518,7 @@ export function Header({
                   to="/cross-seed"
                   className="flex cursor-pointer"
                 >
-                  <GitBranch className="mr-2 h-4 w-4" />
+                  <GitBranch className="mr-2 h-4 w-4" aria-hidden="true" />
                   Cross-Seed
                 </Link>
               </DropdownMenuItem>
@@ -625,7 +527,7 @@ export function Header({
                   to="/automations"
                   className="flex cursor-pointer"
                 >
-                  <Zap className="mr-2 h-4 w-4" />
+                  <Zap className="mr-2 h-4 w-4" aria-hidden="true" />
                   Automations
                 </Link>
               </DropdownMenuItem>
@@ -634,7 +536,7 @@ export function Header({
                   to="/backups"
                   className="flex cursor-pointer"
                 >
-                  <Archive className="mr-2 h-4 w-4" />
+                  <Archive className="mr-2 h-4 w-4" aria-hidden="true" />
                   Backups
                 </Link>
               </DropdownMenuItem>
@@ -644,7 +546,7 @@ export function Header({
                   search={{ tab: "instances" }}
                   className="flex cursor-pointer"
                 >
-                  <Server className="mr-2 h-4 w-4" />
+                  <Server className="mr-2 h-4 w-4" aria-hidden="true" />
                   Instances
                 </Link>
               </DropdownMenuItem>
@@ -662,7 +564,7 @@ export function Header({
                           params={{ instanceId: instance.id.toString() }}
                           className="flex cursor-pointer pl-6"
                         >
-                          <HardDrive className="mr-2 h-4 w-4" />
+                          <HardDrive className="mr-2 h-4 w-4" aria-hidden="true" />
                           <span className="truncate">{instance.name}</span>
                           <span className="ml-auto flex items-center gap-1.5">
                             {hasRss && (
@@ -716,7 +618,7 @@ export function Header({
                   search={{ tab: "themes" }}
                   className="flex cursor-pointer"
                 >
-                  <Palette className="mr-2 h-4 w-4" />
+                  <Palette className="mr-2 h-4 w-4" aria-hidden="true" />
                   Appearance
                 </Link>
               </DropdownMenuItem>
@@ -725,13 +627,13 @@ export function Header({
                   to="/settings"
                   className="flex cursor-pointer"
                 >
-                  <Settings className="mr-2 h-4 w-4" />
+                  <Settings className="mr-2 h-4 w-4" aria-hidden="true" />
                   Settings
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => logout()}>
-                <LogOut className="mr-2 h-4 w-4" />
+                <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
                 Logout
               </DropdownMenuItem>
             </DropdownMenuContent>

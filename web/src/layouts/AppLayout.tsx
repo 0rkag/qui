@@ -24,10 +24,9 @@ function AppLayoutContent() {
       {/* Desktop Sidebar - Collapsible using transform for GPU acceleration */}
       <div
         className={cn(
-          "hidden lg:block w-64 flex-shrink-0 transition-[transform,opacity] duration-300 ease-out",
-          sidebarCollapsed ? "-translate-x-full opacity-0" : "translate-x-0 opacity-100"
+          "hidden lg:block w-64 flex-shrink-0 transition-[transform,opacity,margin] duration-300 ease-out",
+          sidebarCollapsed ? "-translate-x-full opacity-0 -mr-64" : "translate-x-0 opacity-100 mr-0"
         )}
-        style={{ marginRight: sidebarCollapsed ? "-16rem" : 0 }}
         aria-hidden={sidebarCollapsed}
       >
         <Sidebar />
@@ -48,10 +47,13 @@ function AppLayoutContent() {
                 aria-label={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
                 aria-expanded={!sidebarCollapsed}
               >
-                <Menu className={cn(
-                  "h-5 w-5 transition-transform duration-300",
-                  sidebarCollapsed && "rotate-90"
-                )} />
+                <Menu
+                  className={cn(
+                    "h-5 w-5 transition-transform duration-300",
+                    sidebarCollapsed && "rotate-90"
+                  )}
+                  aria-hidden="true"
+                />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">

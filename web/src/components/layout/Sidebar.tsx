@@ -67,7 +67,7 @@ export function Sidebar() {
 
       <nav className="flex flex-1 min-h-0 flex-col px-3" aria-label="Main navigation">
         {/* Navigation */}
-        <div className="space-y-1 mb-4" role="list">
+        <div className="space-y-1 mb-4">
           <Link
             to="/dashboard"
             className={cn(
@@ -169,11 +169,11 @@ export function Sidebar() {
                     params={{ instanceId: instance.id.toString() }}
                     className={cn(
                       "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200 ease-out",
-                      isActive? "bg-sidebar-primary text-sidebar-primary-foreground": "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      isActive ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     )}
                     aria-current={isActive ? "page" : undefined}
                   >
-                    <HardDrive className="h-4 w-4 flex-shrink-0" />
+                    <HardDrive className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
                     <span className="truncate max-w-36" title={instance.name}>{instance.name}</span>
                     <span className="ml-auto flex items-center gap-1.5">
                       {hasRss && (
@@ -257,7 +257,7 @@ export function Sidebar() {
           className="w-full justify-start"
           onClick={() => logout()}
         >
-          <LogOut className="mr-2 h-4 w-4" />
+          <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
           Logout
         </Button>
 
@@ -267,7 +267,7 @@ export function Sidebar() {
           <div className="flex flex-col gap-1 text-[10px] text-sidebar-foreground/40 select-none">
             <span className="font-medium text-sidebar-foreground/50">Version {appVersion}</span>
             <div className="flex items-center gap-1">
-              <Copyright className="h-2.5 w-2.5" />
+              <Copyright className="h-2.5 w-2.5" aria-hidden="true" />
               <span>{new Date().getFullYear()} autobrr</span>
             </div>
           </div>
@@ -283,7 +283,7 @@ export function Sidebar() {
               rel="noopener noreferrer"
               aria-label="View on GitHub"
             >
-              <Github className="h-4 w-4" />
+              <Github className="h-4 w-4" aria-hidden="true" />
             </a>
           </Button>
         </div>
