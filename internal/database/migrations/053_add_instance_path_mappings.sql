@@ -19,7 +19,3 @@ CREATE TABLE instance_path_mappings (
 CREATE INDEX idx_instance_path_mappings_instance ON instance_path_mappings(instance_id);
 CREATE INDEX idx_instance_path_mappings_enabled ON instance_path_mappings(instance_id, enabled);
 
--- +migrate Down
-DROP INDEX IF EXISTS idx_instance_path_mappings_enabled;
-DROP INDEX IF EXISTS idx_instance_path_mappings_instance;
-DROP TABLE IF EXISTS instance_path_mappings;

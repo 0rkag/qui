@@ -7,9 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 
 	"github.com/autobrr/qui/internal/models"
@@ -67,17 +65,16 @@ type ReorderPayload struct {
 	Orders map[int64]int `json:"orders"` // mapping ID -> sort order
 }
 
-// List handles GET /api/instances/{instanceId}/path-mappings
+// List handles GET /api/instances/{instanceID}/path-mappings
 func (h *InstancePathMappingsHandler) List(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := strconv.Atoi(chi.URLParam(r, "instanceId"))
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid instance ID")
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
 		return
 	}
 
 	mappings, err := h.store.ListByInstance(r.Context(), instanceID)
 	if err != nil {
-		log.Error().Err(err).Int("instanceId", instanceID).Msg("path-mappings: failed to list mappings")
+		log.Error().Err(err).Int("instanceID", instanceID).Msg("path-mappings: failed to list mappings")
 		RespondError(w, http.StatusInternalServerError, "Failed to list path mappings")
 		return
 	}
@@ -89,11 +86,10 @@ func (h *InstancePathMappingsHandler) List(w http.ResponseWriter, r *http.Reques
 	RespondJSON(w, http.StatusOK, mappings)
 }
 
-// Create handles POST /api/instances/{instanceId}/path-mappings
+// Create handles POST /api/instances/{instanceID}/path-mappings
 func (h *InstancePathMappingsHandler) Create(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := strconv.Atoi(chi.URLParam(r, "instanceId"))
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid instance ID")
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
 		return
 	}
 
@@ -124,7 +120,7 @@ func (h *InstancePathMappingsHandler) Create(w http.ResponseWriter, r *http.Requ
 			RespondError(w, http.StatusConflict, "Instance path already exists for this instance")
 			return
 		}
-		log.Error().Err(err).Int("instanceId", instanceID).Msg("path-mappings: failed to create mapping")
+		log.Error().Err(err).Int("instanceID", instanceID).Msg("path-mappings: failed to create mapping")
 		RespondError(w, http.StatusInternalServerError, "Failed to create path mapping")
 		return
 	}
@@ -132,11 +128,10 @@ func (h *InstancePathMappingsHandler) Create(w http.ResponseWriter, r *http.Requ
 	RespondJSON(w, http.StatusCreated, created)
 }
 
-// Get handles GET /api/instances/{instanceId}/path-mappings/{id}
+// Get handles GET /api/instances/{instanceID}/path-mappings/{id}
 func (h *InstancePathMappingsHandler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid mapping ID")
+	id, ok := parseInt64Param(w, r, "id", "Invalid mapping ID")
+	if !ok {
 		return
 	}
 
@@ -154,17 +149,15 @@ func (h *InstancePathMappingsHandler) Get(w http.ResponseWriter, r *http.Request
 	RespondJSON(w, http.StatusOK, mapping)
 }
 
-// Update handles PUT /api/instances/{instanceId}/path-mappings/{id}
+// Update handles PUT /api/instances/{instanceID}/path-mappings/{id}
 func (h *InstancePathMappingsHandler) Update(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := strconv.Atoi(chi.URLParam(r, "instanceId"))
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid instance ID")
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
 		return
 	}
 
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid mapping ID")
+	id, ok := parseInt64Param(w, r, "id", "Invalid mapping ID")
+	if !ok {
 		return
 	}
 
@@ -219,17 +212,15 @@ func (h *InstancePathMappingsHandler) Update(w http.ResponseWriter, r *http.Requ
 	RespondJSON(w, http.StatusOK, existing)
 }
 
-// Delete handles DELETE /api/instances/{instanceId}/path-mappings/{id}
+// Delete handles DELETE /api/instances/{instanceID}/path-mappings/{id}
 func (h *InstancePathMappingsHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := strconv.Atoi(chi.URLParam(r, "instanceId"))
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid instance ID")
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
 		return
 	}
 
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid mapping ID")
+	id, ok := parseInt64Param(w, r, "id", "Invalid mapping ID")
+	if !ok {
 		return
 	}
 
@@ -263,11 +254,10 @@ func (h *InstancePathMappingsHandler) Delete(w http.ResponseWriter, r *http.Requ
 	RespondJSON(w, http.StatusNoContent, nil)
 }
 
-// Reorder handles PUT /api/instances/{instanceId}/path-mappings/reorder
+// Reorder handles PUT /api/instances/{instanceID}/path-mappings/reorder
 func (h *InstancePathMappingsHandler) Reorder(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := strconv.Atoi(chi.URLParam(r, "instanceId"))
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid instance ID")
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
 		return
 	}
 
@@ -302,7 +292,7 @@ func (h *InstancePathMappingsHandler) Reorder(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := h.store.UpdateSortOrder(r.Context(), payload.Orders); err != nil {
-		log.Error().Err(err).Int("instanceId", instanceID).Msg("path-mappings: failed to reorder mappings")
+		log.Error().Err(err).Int("instanceID", instanceID).Msg("path-mappings: failed to reorder mappings")
 		RespondError(w, http.StatusInternalServerError, "Failed to reorder path mappings")
 		return
 	}
@@ -310,11 +300,10 @@ func (h *InstancePathMappingsHandler) Reorder(w http.ResponseWriter, r *http.Req
 	RespondJSON(w, http.StatusNoContent, nil)
 }
 
-// TestPath handles POST /api/instances/{instanceId}/path-mappings/test
+// TestPath handles POST /api/instances/{instanceID}/path-mappings/test
 func (h *InstancePathMappingsHandler) TestPath(w http.ResponseWriter, r *http.Request) {
-	instanceID, err := strconv.Atoi(chi.URLParam(r, "instanceId"))
-	if err != nil {
-		RespondError(w, http.StatusBadRequest, "Invalid instance ID")
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
 		return
 	}
 
@@ -335,6 +324,7 @@ func (h *InstancePathMappingsHandler) TestPath(w http.ResponseWriter, r *http.Re
 	}
 
 	var outputPath string
+	var err error
 	switch payload.Direction {
 	case "to_canonical":
 		outputPath, err = h.resolver.ToCanonicalPath(r.Context(), instanceID, payload.Path)
@@ -346,7 +336,7 @@ func (h *InstancePathMappingsHandler) TestPath(w http.ResponseWriter, r *http.Re
 	}
 
 	if err != nil {
-		log.Error().Err(err).Int("instanceId", instanceID).Str("path", payload.Path).Msg("path-mappings: failed to test path")
+		log.Error().Err(err).Int("instanceID", instanceID).Str("path", payload.Path).Msg("path-mappings: failed to test path")
 		RespondError(w, http.StatusInternalServerError, "Failed to test path")
 		return
 	}

@@ -346,34 +346,17 @@ func (e *LocalExecutor) Rollback(ctx context.Context, t *models.Transfer, prep *
 }
 
 // computeTargetPath determines where files should be placed on target.
+// This is a fallback method used when PathResolver is not available.
 func (e *LocalExecutor) computeTargetPath(
 	sourcePath string,
 	targetInstance *models.Instance,
 	mappings map[string]string,
 ) string {
-	// 1. Check explicit path mappings first (longest prefix match)
+	// 1. Apply per-transfer path mappings (longest prefix match)
 	if len(mappings) > 0 {
-		var bestMatch string
-		var bestReplacement string
-		for oldPrefix, newPrefix := range mappings {
-			// Require exact match or path separator after prefix to avoid partial name matches
-			if sourcePath == oldPrefix || strings.HasPrefix(sourcePath, oldPrefix) {
-				// Ensure prefix ends on a path boundary when prefix has no trailing separator
-				if len(sourcePath) > len(oldPrefix) &&
-					!strings.HasSuffix(oldPrefix, "/") && !strings.HasSuffix(oldPrefix, "\\") {
-					next := sourcePath[len(oldPrefix)]
-					if next != '/' && next != '\\' {
-						continue
-					}
-				}
-				if len(oldPrefix) > len(bestMatch) {
-					bestMatch = oldPrefix
-					bestReplacement = newPrefix
-				}
-			}
-		}
-		if bestMatch != "" {
-			return strings.Replace(sourcePath, bestMatch, bestReplacement, 1)
+		resolved := models.ApplyDirectMappings(sourcePath, mappings)
+		if resolved != sourcePath {
+			return resolved
 		}
 	}
 

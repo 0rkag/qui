@@ -15,10 +15,8 @@ import (
 )
 
 var (
-	ErrPathMappingNotFound    = errors.New("path mapping not found")
-	ErrDuplicateInstancePath  = errors.New("instance path already exists for this instance")
-	ErrInvalidPathMapping     = errors.New("invalid path mapping")
-	ErrNoMatchingPathMapping  = errors.New("no matching path mapping found")
+	ErrPathMappingNotFound   = errors.New("path mapping not found")
+	ErrDuplicateInstancePath = errors.New("instance path already exists for this instance")
 )
 
 // InstancePathMapping represents a path mapping between an instance's view
@@ -303,7 +301,7 @@ func (r *PathResolver) ResolveTargetPath(
 ) (string, error) {
 	// If per-transfer mappings provided, use them directly (existing behavior)
 	if len(transferMappings) > 0 {
-		return applyDirectMappings(sourcePath, transferMappings), nil
+		return ApplyDirectMappings(sourcePath, transferMappings), nil
 	}
 
 	// Two-step translation via canonical path
@@ -385,8 +383,9 @@ func matchesPrefix(path, prefix string) bool {
 	return nextChar == '/' || nextChar == '\\'
 }
 
-// applyDirectMappings applies direct path mappings (legacy per-transfer behavior).
-func applyDirectMappings(sourcePath string, mappings map[string]string) string {
+// ApplyDirectMappings applies direct path mappings using longest prefix match.
+// This is used for per-transfer path overrides.
+func ApplyDirectMappings(sourcePath string, mappings map[string]string) string {
 	sourcePath = normalizePath(sourcePath)
 
 	var bestMatch string

@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 
 	internalqbittorrent "github.com/autobrr/qui/internal/qbittorrent"
@@ -57,4 +59,26 @@ func respondIfInstanceDisabled(w http.ResponseWriter, err error, instanceID int,
 	}
 
 	return false
+}
+
+// parseIntParam extracts and validates a named int URL parameter.
+// Returns the parsed ID or writes an error response and returns 0, false.
+func parseIntParam(w http.ResponseWriter, r *http.Request, name string, errorMsg string) (int, bool) {
+	id, err := strconv.Atoi(chi.URLParam(r, name))
+	if err != nil {
+		RespondError(w, http.StatusBadRequest, errorMsg)
+		return 0, false
+	}
+	return id, true
+}
+
+// parseInt64Param extracts and validates a named int64 URL parameter.
+// Returns the parsed ID or writes an error response and returns 0, false.
+func parseInt64Param(w http.ResponseWriter, r *http.Request, name string, errorMsg string) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
+	if err != nil {
+		RespondError(w, http.StatusBadRequest, errorMsg)
+		return 0, false
+	}
+	return id, true
 }

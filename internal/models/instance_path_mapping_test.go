@@ -59,11 +59,11 @@ func TestMatchesPrefix(t *testing.T) {
 
 func TestToCanonicalPath(t *testing.T) {
 	tests := []struct {
-		name       string
-		path       string
-		mappings   []*InstancePathMapping
-		expected   string
-		expectErr  bool
+		name      string
+		path      string
+		mappings  []*InstancePathMapping
+		expected  string
+		expectErr bool
 	}{
 		{
 			name:     "no mappings - returns same path",
@@ -136,11 +136,11 @@ func TestToCanonicalPath(t *testing.T) {
 
 func TestFromCanonicalPath(t *testing.T) {
 	tests := []struct {
-		name       string
-		path       string
-		mappings   []*InstancePathMapping
-		expected   string
-		expectErr  bool
+		name      string
+		path      string
+		mappings  []*InstancePathMapping
+		expected  string
+		expectErr bool
 	}{
 		{
 			name:     "no mappings - returns same path",
@@ -251,9 +251,9 @@ func TestApplyDirectMappings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := applyDirectMappings(tt.path, tt.mappings)
+			result := ApplyDirectMappings(tt.path, tt.mappings)
 			if result != tt.expected {
-				t.Errorf("applyDirectMappings(%q) = %q, want %q", tt.path, result, tt.expected)
+				t.Errorf("ApplyDirectMappings(%q) = %q, want %q", tt.path, result, tt.expected)
 			}
 		})
 	}
