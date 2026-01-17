@@ -15,14 +15,15 @@ type ExecutorRegistry struct {
 }
 
 // NewExecutorRegistry creates a registry with the default set of executors.
-// Currently only LocalExecutor is available. Future executors (SSH, Agent)
-// will be added here.
-func NewExecutorRegistry(local *LocalExecutor) *ExecutorRegistry {
+// LocalExecutor is checked first (most efficient for local transfers),
+// then SSHExecutor for remote transfers.
+func NewExecutorRegistry(local *LocalExecutor, ssh *SSHExecutor) *ExecutorRegistry {
+	executors := []TransferExecutor{local}
+	if ssh != nil {
+		executors = append(executors, ssh)
+	}
 	return &ExecutorRegistry{
-		executors: []TransferExecutor{
-			local,
-			// Future: NewSSHExecutor(), NewAgentExecutor()
-		},
+		executors: executors,
 	}
 }
 

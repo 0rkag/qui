@@ -262,7 +262,7 @@ func TestExecutorSelection(t *testing.T) {
 			target := newTestInstance(2, withLocalAccess(tt.targetLocal))
 
 			localExecutor := NewLocalExecutor(nil, nil)
-			registry := NewExecutorRegistry(localExecutor)
+			registry := NewExecutorRegistry(localExecutor, nil)
 
 			executor, err := registry.SelectExecutor(source, target)
 

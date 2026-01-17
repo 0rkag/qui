@@ -68,12 +68,19 @@ func New(
 	instanceStore InstanceProvider,
 	syncManager SyncManager,
 	pathMappingStore *models.InstancePathMappingStore,
+	connectionStore *models.InstanceConnectionStore,
 ) *Service {
 	// Create the local executor with optional path mapping support
 	localExecutor := NewLocalExecutorWithPathResolver(syncManager, instanceStore, pathMappingStore)
 
+	// Create SSH executor if connection store is provided
+	var sshExecutor *SSHExecutor
+	if connectionStore != nil {
+		sshExecutor = NewSSHExecutor(syncManager, instanceStore, connectionStore, pathMappingStore)
+	}
+
 	// Create the registry with available executors
-	registry := NewExecutorRegistry(localExecutor)
+	registry := NewExecutorRegistry(localExecutor, sshExecutor)
 
 	return &Service{
 		store:            store,

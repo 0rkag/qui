@@ -587,9 +587,12 @@ func (app *Application) runServer() {
 	// Initialize instance path mapping store for canonical path translation
 	instancePathMappingStore := models.NewInstancePathMappingStore(db)
 
+	// Initialize instance connection store for SSH/remote access
+	instanceConnectionStore := models.NewInstanceConnectionStore(db)
+
 	// Initialize transfer service for moving torrents between instances
 	transferStore := models.NewTransferStore(db)
-	transferService := transfer.New(transferStore, instanceStore, syncManager, instancePathMappingStore)
+	transferService := transfer.New(transferStore, instanceStore, syncManager, instancePathMappingStore, instanceConnectionStore)
 
 	dirScanStore := models.NewDirScanStore(db)
 	dirScanService := dirscan.NewService(dirscan.DefaultConfig(), dirScanStore, instanceStore, syncManager, jackettService, arrService, trackerCustomizationStore)
