@@ -2055,7 +2055,7 @@ export interface Transfer {
   state: TransferState
   sourceSavePath?: string
   targetSavePath?: string
-  linkMode?: "hardlink" | "reflink" | "direct"
+  linkMode?: "hardlink" | "reflink" | "direct" | "transfer" | "copy"
   deleteFromSource: boolean
   preserveCategory: boolean
   preserveTags: boolean
@@ -2064,6 +2064,8 @@ export interface Transfer {
   pathMappings?: Record<string, string>
   filesTotal: number
   filesLinked: number
+  bytesTotal: number
+  bytesTransferred: number
   error?: string
   createdAt: string
   updatedAt: string

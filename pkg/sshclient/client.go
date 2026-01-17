@@ -177,12 +177,28 @@ func (c *Client) ExecSimple(ctx context.Context, cmd string) (string, error) {
 }
 
 // MkdirAll creates a directory and all parent directories on the remote host.
+// If the directory already exists, this is a no-op.
 func (c *Client) MkdirAll(ctx context.Context, path string) error {
 	if err := ValidatePath(path); err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}
-	_, err := c.ExecSimple(ctx, fmt.Sprintf("mkdir -p %s", shellQuote(path)))
-	return err
+
+	// Check if directory already exists
+	exists, err := c.IsDir(ctx, path)
+	if err == nil && exists {
+		return nil // Directory exists, nothing to do
+	}
+
+	// Try to create the directory
+	result, err := c.Exec(ctx, fmt.Sprintf("mkdir -p %s", shellQuote(path)))
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("failed to create directory %s: %s (check that the parent directory exists and the SSH user has write permission)",
+			path, strings.TrimSpace(result.Stderr))
+	}
+	return nil
 }
 
 // Exists checks if a path exists on the remote host.

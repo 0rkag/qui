@@ -97,12 +97,7 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 		return nil, fmt.Errorf("failed to get source properties: %w", err)
 	}
 
-	// 6. Check torrent is complete
-	if sourceTorrent.Progress < 1.0 {
-		return nil, fmt.Errorf("torrent is not complete (%.1f%%)", sourceTorrent.Progress*100)
-	}
-
-	// 7. Build result
+	// 6. Build result early so that TorrentName is available even if we fail later
 	result := &PrepareResult{
 		TorrentName:    sourceTorrent.Name,
 		SourceSavePath: props.SavePath,
@@ -110,9 +105,20 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 		TargetInstance: targetInstance,
 	}
 
-	// 8. Build file list with path validation
+	// 7. Build file list with path validation - only include complete files
 	result.Files = make([]TorrentFile, 0, len(*files))
+	var skippedFiles int
 	for _, f := range *files {
+		// Skip files that are not fully downloaded
+		if f.Progress < 1.0 {
+			skippedFiles++
+			log.Debug().
+				Str("file", f.Name).
+				Float64("progress", float64(f.Progress)).
+				Msg("[TRANSFER-LOCAL] Skipping incomplete file")
+			continue
+		}
+
 		// Validate relative path to prevent path traversal attacks
 		if err := ValidateRelPath(f.Name); err != nil {
 			return nil, fmt.Errorf("unsafe file path in torrent %q: %w", f.Name, err)
@@ -122,6 +128,20 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 			AbsPath: filepath.Join(props.SavePath, f.Name),
 			Size:    f.Size,
 		})
+	}
+
+	// 8. Fail if no files are complete
+	if len(result.Files) == 0 {
+		return result, fmt.Errorf("no complete files to transfer (torrent is %.1f%% complete)", sourceTorrent.Progress*100)
+	}
+
+	// Log if we're doing a partial transfer
+	if skippedFiles > 0 {
+		log.Info().
+			Int("completeFiles", len(result.Files)).
+			Int("skippedFiles", skippedFiles).
+			Float64("torrentProgress", sourceTorrent.Progress*100).
+			Msg("[TRANSFER-LOCAL] Partial transfer - only transferring complete files")
 	}
 
 	// 9. Extract category and tags

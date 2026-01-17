@@ -114,6 +114,19 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
+// ProgressInfo contains transfer progress information.
+type ProgressInfo struct {
+	BytesTransferred int64
+	BytesTotal       int64
+	Percentage       int
+	Speed            string // Human-readable speed like "12.34MB/s"
+	SpeedBytesPerSec int64  // Speed in bytes per second
+	ETA              string // Estimated time remaining
+}
+
+// ProgressCallback is called periodically with transfer progress.
+type ProgressCallback func(info ProgressInfo)
+
 // TransferOptions configures file transfer behavior.
 type TransferOptions struct {
 	// PreservePermissions preserves file permissions and timestamps.
@@ -122,6 +135,8 @@ type TransferOptions struct {
 	Delete bool
 	// DryRun simulates the transfer without making changes.
 	DryRun bool
+	// OnProgress is called periodically with progress updates.
+	OnProgress ProgressCallback
 }
 
 // TransferResult holds the result of a file transfer.
@@ -148,7 +163,7 @@ func RsyncPush(ctx context.Context, cfg *Config, localPath, remotePath string, o
 	args = append(args, localPath)
 	args = append(args, fmt.Sprintf("%s@%s:%s", cfg.Username, cfg.Host, remotePath))
 
-	return runRsync(ctx, args)
+	return runRsyncWithProgress(ctx, args, opts.OnProgress)
 }
 
 // RsyncPull transfers files from remote to local using rsync.
@@ -165,7 +180,7 @@ func RsyncPull(ctx context.Context, cfg *Config, remotePath, localPath string, o
 	args = append(args, fmt.Sprintf("%s@%s:%s", cfg.Username, cfg.Host, remotePath))
 	args = append(args, localPath)
 
-	return runRsync(ctx, args)
+	return runRsyncWithProgress(ctx, args, opts.OnProgress)
 }
 
 // RsyncRemoteToRemote transfers files between two remote hosts.
@@ -286,10 +301,11 @@ func ScpPull(ctx context.Context, cfg *Config, remotePath, localPath string) err
 }
 
 func buildRsyncArgs(opts *TransferOptions) []string {
-	args := []string{"-a", "-v", "--progress"}
+	// Use --info=progress2 for overall progress (easier to parse)
+	args := []string{"-a", "--info=progress2"}
 
 	if !opts.PreservePermissions {
-		args = []string{"-r", "-v", "--progress"}
+		args = []string{"-r", "--info=progress2"}
 	}
 	if opts.Delete {
 		args = append(args, "--delete")
@@ -307,13 +323,62 @@ func buildSSHCommand(cfg *Config) string {
 }
 
 func runRsync(ctx context.Context, args []string) (*TransferResult, error) {
+	return runRsyncWithProgress(ctx, args, nil)
+}
+
+func runRsyncWithProgress(ctx context.Context, args []string, onProgress ProgressCallback) (*TransferResult, error) {
 	cmd := exec.CommandContext(ctx, "rsync", args...)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	// If no progress callback, just buffer stdout
+	if onProgress == nil {
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+
+		if err := cmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				return nil, fmt.Errorf("rsync failed (exit %d): %s", exitErr.ExitCode(), stderr.String())
+			}
+			return nil, fmt.Errorf("rsync: %w", err)
+		}
+
+		return &TransferResult{
+			Output: stdout.String(),
+		}, nil
+	}
+
+	// Stream stdout for progress parsing
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start rsync: %w", err)
+	}
+
+	// Parse progress in a separate goroutine
+	var outputBuf bytes.Buffer
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				outputBuf.Write(buf[:n])
+				// Try to parse progress from the output
+				if info := parseRsyncProgress(string(buf[:n])); info != nil {
+					onProgress(*info)
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	if err := cmd.Wait(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return nil, fmt.Errorf("rsync failed (exit %d): %s", exitErr.ExitCode(), stderr.String())
 		}
@@ -321,6 +386,108 @@ func runRsync(ctx context.Context, args []string) (*TransferResult, error) {
 	}
 
 	return &TransferResult{
-		Output: stdout.String(),
+		Output: outputBuf.String(),
 	}, nil
+}
+
+// parseRsyncProgress parses rsync --info=progress2 output.
+// Format:     12,345,678  23%   45.67MB/s    0:01:23
+func parseRsyncProgress(output string) *ProgressInfo {
+	// Look for progress line pattern
+	// rsync outputs: "     bytes  pct%  speed  eta"
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Progress lines contain % and time format
+		if !strings.Contains(line, "%") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+
+		// Parse bytes (remove commas)
+		bytesStr := strings.ReplaceAll(fields[0], ",", "")
+		bytes, err := parseInt64(bytesStr)
+		if err != nil {
+			continue
+		}
+
+		// Parse percentage
+		pctStr := strings.TrimSuffix(fields[1], "%")
+		pct, err := parseInt(pctStr)
+		if err != nil {
+			continue
+		}
+
+		// Speed is field 2
+		speed := fields[2]
+		speedBytes := parseSpeed(speed)
+
+		// ETA is field 3 (may be "xfr#" info instead)
+		eta := ""
+		if len(fields) >= 4 && strings.Contains(fields[3], ":") {
+			eta = fields[3]
+		}
+
+		// Calculate total from percentage
+		var total int64
+		if pct > 0 {
+			total = bytes * 100 / int64(pct)
+		}
+
+		return &ProgressInfo{
+			BytesTransferred: bytes,
+			BytesTotal:       total,
+			Percentage:       pct,
+			Speed:            speed,
+			SpeedBytesPerSec: speedBytes,
+			ETA:              eta,
+		}
+	}
+	return nil
+}
+
+func parseInt64(s string) (int64, error) {
+	var result int64
+	_, err := fmt.Sscanf(s, "%d", &result)
+	return result, err
+}
+
+func parseInt(s string) (int, error) {
+	var result int
+	_, err := fmt.Sscanf(s, "%d", &result)
+	return result, err
+}
+
+// parseSpeed converts speed string like "45.67MB/s" to bytes per second
+func parseSpeed(s string) int64 {
+	s = strings.TrimSuffix(s, "/s")
+
+	multiplier := int64(1)
+	if strings.HasSuffix(s, "KB") {
+		multiplier = 1024
+		s = strings.TrimSuffix(s, "KB")
+	} else if strings.HasSuffix(s, "MB") {
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(s, "MB")
+	} else if strings.HasSuffix(s, "GB") {
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(s, "GB")
+	} else if strings.HasSuffix(s, "B") {
+		s = strings.TrimSuffix(s, "B")
+	}
+
+	var value float64
+	if _, err := fmt.Sscanf(s, "%f", &value); err != nil {
+		return 0
+	}
+
+	return int64(value * float64(multiplier))
 }

@@ -2330,6 +2330,10 @@ class ApiClient {
     filesTotal?: number
     files_linked?: number
     filesLinked?: number
+    bytes_total?: number
+    bytesTotal?: number
+    bytes_transferred?: number
+    bytesTransferred?: number
     error?: string
     created_at?: string
     createdAt?: string
@@ -2416,6 +2420,8 @@ class ApiClient {
       pathMappings: raw.pathMappings ?? raw.path_mappings,
       filesTotal: raw.filesTotal ?? raw.files_total ?? 0,
       filesLinked: raw.filesLinked ?? raw.files_linked ?? 0,
+      bytesTotal: raw.bytesTotal ?? raw.bytes_total ?? 0,
+      bytesTransferred: raw.bytesTransferred ?? raw.bytes_transferred ?? 0,
       error: raw.error,
       createdAt: raw.createdAt ?? raw.created_at ?? "",
       updatedAt: raw.updatedAt ?? raw.updated_at ?? "",

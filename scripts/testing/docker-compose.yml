@@ -1,0 +1,60 @@
+# Test setup with host network mode
+# Each container uses unique ports for WebUI and SSH
+#
+# Volume setup:
+# - qbit1 and qbit2 share a volume (/shared) for hardlink testing
+# - qbit3 has its own volume for rsync-only testing
+
+services:
+  qbit1:
+    image: linuxserver/qbittorrent:latest
+    container_name: qbit1
+    network_mode: host
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - WEBUI_PORT=8081
+    volumes:
+      - qbit1-downloads:/downloads
+      - qbit1-config:/config
+      - shared-storage:/shared  # Shared with qbit2 for hardlink tests
+    restart: unless-stopped
+
+  qbit2:
+    image: linuxserver/qbittorrent:latest
+    container_name: qbit2
+    network_mode: host
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - WEBUI_PORT=8082
+    volumes:
+      - qbit2-downloads:/downloads
+      - qbit2-config:/config
+      - shared-storage:/shared  # Shared with qbit1 for hardlink tests
+    restart: unless-stopped
+
+  qbit3:
+    image: linuxserver/qbittorrent:latest
+    container_name: qbit3
+    network_mode: host
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - WEBUI_PORT=8083
+    volumes:
+      - qbit3-downloads:/downloads
+      - qbit3-config:/config
+    restart: unless-stopped
+
+volumes:
+  qbit1-downloads:
+  qbit1-config:
+  qbit2-downloads:
+  qbit2-config:
+  qbit3-downloads:
+  qbit3-config:
+  shared-storage:  # Shared between qbit1 and qbit2 for hardlink tests

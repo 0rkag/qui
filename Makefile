@@ -18,7 +18,7 @@ INTERNAL_WEB_DIR = internal/web
 # Go build flags with Polar credentials
 LDFLAGS = -ldflags "-X github.com/autobrr/qui/internal/buildinfo.Version=$(VERSION) -X main.PolarOrgID=$(POLAR_ORG_ID)"
 
-.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
+.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-integration test-e2e test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
 
 # Default target
 all: build
@@ -102,6 +102,24 @@ test:
 	@echo "Running tests..."
 	go test -race -count=3 -v ./...
 
+# Run integration tests (requires filesystem operations)
+test-integration:
+	@echo "Running integration tests..."
+	go test -tags=integration -v ./internal/services/transfer/...
+
+# Run E2E tests (requires Docker)
+test-e2e:
+	@echo "Running E2E transfer tests..."
+	cd scripts/testing && ./run-test.sh
+
+# Clean up E2E test containers
+test-e2e-clean:
+	@echo "Cleaning up E2E test environment..."
+	cd scripts/testing && ./run-test.sh cleanup
+
+# Run all tests
+test-all: test test-integration test-e2e
+
 # Validate OpenAPI specification
 test-openapi:
 	@echo "Validating OpenAPI specification..."
@@ -180,7 +198,11 @@ help:
 	@echo "  make dev-expose     - Run frontend dev server exposed on 0.0.0.0"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test           - Run all tests with race detection"
+	@echo "  make test           - Run unit tests with race detection"
+	@echo "  make test-integration - Run integration tests (filesystem operations)"
+	@echo "  make test-e2e       - Run E2E tests (requires Docker)"
+	@echo "  make test-e2e-clean - Clean up E2E test containers"
+	@echo "  make test-all       - Run all tests (unit + integration + E2E)"
 	@echo "  make test-openapi   - Validate OpenAPI specification"
 	@echo ""
 	@echo "Linting:"

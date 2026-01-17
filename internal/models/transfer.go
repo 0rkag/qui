@@ -89,8 +89,10 @@ type Transfer struct {
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
 
 	// Progress
-	FilesTotal  int `json:"filesTotal"`
-	FilesLinked int `json:"filesLinked"`
+	FilesTotal       int   `json:"filesTotal"`
+	FilesLinked      int   `json:"filesLinked"`
+	BytesTotal       int64 `json:"bytesTotal"`
+	BytesTransferred int64 `json:"bytesTransferred"`
 
 	// Error info
 	Error string `json:"error,omitempty"`
@@ -153,14 +155,14 @@ func (s *TransferStore) Create(ctx context.Context, t *Transfer) (*Transfer, err
 			state, source_save_path, target_save_path, link_mode,
 			delete_from_source, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
-			files_total, files_linked, error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			files_total, files_linked, bytes_total, bytes_transferred, error
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.SourceInstanceID, t.TargetInstanceID, t.TorrentHash, t.TorrentName,
 		t.State, nullString(t.SourceSavePath), nullString(t.TargetSavePath), nullString(t.LinkMode),
 		boolToInt(t.DeleteFromSource), boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
 		nullString(t.TargetCategory), targetTagsJSON, pathMappingsJSON,
-		t.FilesTotal, t.FilesLinked, nullString(t.Error),
+		t.FilesTotal, t.FilesLinked, t.BytesTotal, t.BytesTransferred, nullString(t.Error),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert transfer: %w", err)
@@ -181,7 +183,7 @@ func (s *TransferStore) Get(ctx context.Context, id int64) (*Transfer, error) {
 			state, source_save_path, target_save_path, link_mode,
 			delete_from_source, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
-			files_total, files_linked, error,
+			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
 		FROM transfers
 		WHERE id = ?
@@ -197,7 +199,7 @@ func (s *TransferStore) GetByHash(ctx context.Context, hash string) (*Transfer, 
 			state, source_save_path, target_save_path, link_mode,
 			delete_from_source, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
-			files_total, files_linked, error,
+			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
 		FROM transfers
 		WHERE torrent_hash = ? AND state NOT IN (`
@@ -248,14 +250,16 @@ func (s *TransferStore) Update(ctx context.Context, t *Transfer) error {
 			source_save_path = ?, target_save_path = ?, link_mode = ?,
 			delete_from_source = ?, preserve_category = ?, preserve_tags = ?,
 			target_category = ?, target_tags = ?, path_mappings = ?,
-			files_total = ?, files_linked = ?, error = ?, completed_at = ?
+			files_total = ?, files_linked = ?, bytes_total = ?, bytes_transferred = ?,
+			error = ?, completed_at = ?
 		WHERE id = ?
 	`,
 		t.TorrentName, t.State,
 		nullString(t.SourceSavePath), nullString(t.TargetSavePath), nullString(t.LinkMode),
 		boolToInt(t.DeleteFromSource), boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
 		nullString(t.TargetCategory), targetTagsJSON, pathMappingsJSON,
-		t.FilesTotal, t.FilesLinked, nullString(t.Error), nullTime(t.CompletedAt),
+		t.FilesTotal, t.FilesLinked, t.BytesTotal, t.BytesTransferred,
+		nullString(t.Error), nullTime(t.CompletedAt),
 		t.ID,
 	)
 	return err
@@ -295,7 +299,7 @@ func (s *TransferStore) ListByStates(ctx context.Context, states []TransferState
 			state, source_save_path, target_save_path, link_mode,
 			delete_from_source, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
-			files_total, files_linked, error,
+			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
 		FROM transfers
 		WHERE state IN (`
@@ -327,7 +331,7 @@ func (s *TransferStore) ListByInstance(ctx context.Context, instanceID int, limi
 			state, source_save_path, target_save_path, link_mode,
 			delete_from_source, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
-			files_total, files_linked, error,
+			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
 		FROM transfers
 		WHERE source_instance_id = ? OR target_instance_id = ?
@@ -349,7 +353,7 @@ func (s *TransferStore) ListRecent(ctx context.Context, limit, offset int) ([]*T
 			state, source_save_path, target_save_path, link_mode,
 			delete_from_source, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
-			files_total, files_linked, error,
+			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
 		FROM transfers
 		ORDER BY created_at DESC
@@ -424,7 +428,7 @@ func (s *TransferStore) scanTransfer(row scannable) (*Transfer, error) {
 		&t.State, &sourceSavePath, &targetSavePath, &linkMode,
 		&t.DeleteFromSource, &t.PreserveCategory, &t.PreserveTags,
 		&targetCategory, &targetTagsJSON, &pathMappingsJSON,
-		&t.FilesTotal, &t.FilesLinked, &errorStr,
+		&t.FilesTotal, &t.FilesLinked, &t.BytesTotal, &t.BytesTransferred, &errorStr,
 		&t.CreatedAt, &t.UpdatedAt, &completedAt,
 	)
 	if err != nil {

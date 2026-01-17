@@ -121,19 +121,46 @@ func (s *Service) doPrepare(ctx context.Context, t *models.Transfer, executor Tr
 	s.updateState(ctx, t, models.TransferStatePreparing, "")
 
 	prep, err := executor.Prepare(ctx, t)
+
+	// Even if prepare fails, save any info we got (like torrent name) so the UI is more helpful
+	if prep != nil {
+		if prep.TorrentName != "" {
+			t.TorrentName = prep.TorrentName
+		}
+		if prep.SourceSavePath != "" {
+			t.SourceSavePath = prep.SourceSavePath
+		}
+		if prep.TargetSavePath != "" {
+			t.TargetSavePath = prep.TargetSavePath
+		}
+		if prep.LinkMode != "" {
+			t.LinkMode = prep.LinkMode
+		}
+		if len(prep.Files) > 0 {
+			t.FilesTotal = len(prep.Files)
+			// Calculate total bytes
+			var totalBytes int64
+			for _, f := range prep.Files {
+				totalBytes += f.Size
+			}
+			t.BytesTotal = totalBytes
+		}
+		if prep.Category != "" {
+			t.TargetCategory = prep.Category
+		}
+		if len(prep.Tags) > 0 {
+			t.TargetTags = prep.Tags
+		}
+	}
+
 	if err != nil {
+		// Save the partial info before failing
+		if prep != nil {
+			_ = s.store.Update(ctx, t)
+		}
 		s.fail(ctx, t, err.Error())
 		return
 	}
-
-	// Update transfer with prepared info
-	t.TorrentName = prep.TorrentName
-	t.SourceSavePath = prep.SourceSavePath
-	t.TargetSavePath = prep.TargetSavePath
-	t.LinkMode = prep.LinkMode
-	t.FilesTotal = len(prep.Files)
-	t.TargetCategory = prep.Category
-	t.TargetTags = prep.Tags
 
 	// Save to database
 	if err := s.store.Update(ctx, t); err != nil {
@@ -168,6 +195,8 @@ func (s *Service) doCreateLinks(ctx context.Context, t *models.Transfer, executo
 	t.FilesLinked = filesLinked
 	// Update target save path in case it changed during link creation
 	t.TargetSavePath = prep.TargetSavePath
+	// Mark all bytes as transferred since the operation completed
+	t.BytesTransferred = t.BytesTotal
 
 	if err := s.store.Update(ctx, t); err != nil {
 		_ = executor.Rollback(ctx, t, prep)
