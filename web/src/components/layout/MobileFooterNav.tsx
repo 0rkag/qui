@@ -286,7 +286,7 @@ export function MobileFooterNav() {
                         <span
                           className={cn(
                             "h-2 w-2 rounded-full",
-                            instance.connected ? "bg-green-500" : "bg-red-500"
+                            instance.connected ? "bg-success" : "bg-destructive"
                           )}
                         />
                       </span>

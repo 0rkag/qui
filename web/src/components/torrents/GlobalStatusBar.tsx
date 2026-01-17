@@ -128,7 +128,7 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
   const isAltSpeedKnown = altSpeedOverride !== null || hasAltSpeedStatus
   const altSpeedEnabled = altSpeedOverride ?? serverAltSpeedEnabled ?? false
   const AltSpeedIcon = altSpeedEnabled ? Turtle : Rabbit
-  const altSpeedIconClass = isAltSpeedKnown ? altSpeedEnabled ? "text-destructive" : "text-green-500" : "text-muted-foreground"
+  const altSpeedIconClass = isAltSpeedKnown ? altSpeedEnabled ? "text-destructive" : "text-success" : "text-muted-foreground"
 
   useEffect(() => {
     setAltSpeedOverride(null)
@@ -184,7 +184,7 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
   const connectionStatusTooltip = hasConnectionStatus
     ? `${isConnectable ? "Connectable" : connectionStatusDisplay}${listenPort ? `. Port: ${listenPort}` : ""}`
     : "Connection status unknown"
-  const connectionStatusIconClass = hasConnectionStatus ? isConnectable ? "text-green-500" : isFirewalled ? "text-amber-500" : "text-destructive" : "text-muted-foreground"
+  const connectionStatusIconClass = hasConnectionStatus ? isConnectable ? "text-success" : isFirewalled ? "text-warning" : "text-destructive" : "text-muted-foreground"
   const connectionStatusAriaLabel = hasConnectionStatus ? `qBittorrent connection status: ${connectionStatusDisplay || formattedConnectionStatus}` : "qBittorrent connection status unknown"
 
   return (
@@ -305,7 +305,7 @@ export const GlobalStatusBar = memo(function GlobalStatusBar({
                   }}
                   className="h-6 w-6 text-muted-foreground hover:text-accent-foreground"
                 >
-                  <RefreshCcw className="h-4 w-4 text-green-500" />
+                  <RefreshCcw className="h-4 w-4 text-success" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Automatic tracker reannounce enabled - Click to configure</TooltipContent>

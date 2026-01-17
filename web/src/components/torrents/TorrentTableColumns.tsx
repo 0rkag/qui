@@ -337,8 +337,8 @@ const getStatusBadgeMeta = (
     if (trackerHealth === "tracker_down") {
       label = "Tracker Down"
       badgeVariant = "outline"
-      badgeClass = "text-yellow-500 border-yellow-500/40 bg-yellow-500/10"
-      iconClass = "text-yellow-500"
+      badgeClass = "text-warning border-warning/40 bg-warning/10"
+      iconClass = "text-warning"
     } else if (trackerHealth === "unregistered") {
       label = "Unregistered"
       badgeVariant = "outline"

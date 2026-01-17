@@ -197,7 +197,7 @@ export function Sidebar() {
                       <span
                         className={cn(
                           "h-2 w-2 rounded-full flex-shrink-0",
-                          instance.connected ? "bg-green-500" : "bg-red-500"
+                          instance.connected ? "bg-success" : "bg-destructive"
                         )}
                       />
                     </span>

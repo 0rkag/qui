@@ -55,7 +55,7 @@ function getStatusInfo(match: CrossSeedTorrent): { label: string; variant: "defa
   if (trackerHealth === "unregistered") {
     return { label: "Unregistered", variant: "outline", className: "text-destructive border-destructive/40 bg-destructive/10" }
   } else if (trackerHealth === "tracker_down") {
-    return { label: "Tracker Down", variant: "outline", className: "text-yellow-500 border-yellow-500/40 bg-yellow-500/10" }
+    return { label: "Tracker Down", variant: "outline", className: "text-warning border-warning/40 bg-warning/10" }
   }
 
   if (match.state === "downloading" || match.state === "uploading") {
@@ -248,7 +248,7 @@ export const CrossSeedTable = memo(function CrossSeedTable({
         return (
           <div className="flex items-center gap-1.5">
             <Progress value={progress} className="h-1.5 w-14" />
-            <span className={cn("tabular-nums text-[10px]", isComplete ? "text-green-500" : "text-muted-foreground")}>
+            <span className={cn("tabular-nums text-[10px]", isComplete ? "text-success" : "text-muted-foreground")}>
               {progress.toFixed(0)}%
             </span>
           </div>

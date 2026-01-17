@@ -245,7 +245,7 @@ export function SpeedLimitsForm({ instanceId, onSuccess }: SpeedLimitsFormProps)
                 icon={Download}
               />
               {field.state.meta.errors.length > 0 && (
-                <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
               )}
             </div>
           )}
@@ -274,7 +274,7 @@ export function SpeedLimitsForm({ instanceId, onSuccess }: SpeedLimitsFormProps)
                 icon={Upload}
               />
               {field.state.meta.errors.length > 0 && (
-                <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
               )}
             </div>
           )}
@@ -303,7 +303,7 @@ export function SpeedLimitsForm({ instanceId, onSuccess }: SpeedLimitsFormProps)
                 icon={Download}
               />
               {field.state.meta.errors.length > 0 && (
-                <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
               )}
             </div>
           )}
@@ -332,7 +332,7 @@ export function SpeedLimitsForm({ instanceId, onSuccess }: SpeedLimitsFormProps)
                 icon={Upload}
               />
               {field.state.meta.errors.length > 0 && (
-                <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
               )}
             </div>
           )}

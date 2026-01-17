@@ -394,7 +394,7 @@ function RuleSummary({ rule }: { rule: Automation }) {
 
       {/* Pause */}
       {conditions?.pause?.enabled && (
-        <Badge variant="outline" className="text-[10px] px-1.5 h-5 gap-1 font-normal text-yellow-600 border-yellow-600/50 cursor-default">
+        <Badge variant="outline" className="text-[10px] px-1.5 h-5 gap-1 font-normal text-warning border-warning/50 cursor-default">
           <Pause className="h-3 w-3" />
           Pause
         </Badge>
@@ -443,7 +443,7 @@ function RuleSummary({ rule }: { rule: Automation }) {
       {conditions?.category?.enabled && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge variant="outline" className="text-[10px] px-1.5 h-5 gap-1 font-normal text-emerald-600 border-emerald-600/50 cursor-help">
+            <Badge variant="outline" className="text-[10px] px-1.5 h-5 gap-1 font-normal text-success border-success/50 cursor-help">
               <Folder className="h-3 w-3" />
               {conditions.category.category}
             </Badge>

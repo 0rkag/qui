@@ -773,7 +773,7 @@ export function InstanceBackups() {
                           <span className="truncate">{inst.name}</span>
                           <span
                             className={`ml-auto h-2 w-2 rounded-full flex-shrink-0 ${
-                              inst.connected ? "bg-green-500" : "bg-red-500"
+                              inst.connected ? "bg-success" : "bg-destructive"
                             }`}
                           />
                         </div>
@@ -864,7 +864,7 @@ export function InstanceBackups() {
                         <span className="truncate">{inst.name}</span>
                         <span
                           className={`ml-auto h-2 w-2 rounded-full flex-shrink-0 ${
-                            inst.connected ? "bg-green-500" : "bg-red-500"
+                            inst.connected ? "bg-success" : "bg-destructive"
                           }`}
                         />
                       </div>

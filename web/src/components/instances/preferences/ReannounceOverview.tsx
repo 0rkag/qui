@@ -125,7 +125,7 @@ export function ReannounceOverview({
   }
 
   const outcomeClasses: Record<InstanceReannounceActivity["outcome"], string> = {
-    succeeded: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+    succeeded: "bg-success/10 text-success border-success/20",
     failed: "bg-destructive/10 text-destructive border-destructive/30",
     skipped: "bg-muted text-muted-foreground border-border/60",
   }
@@ -213,7 +213,7 @@ export function ReannounceOverview({
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="font-medium truncate">{instance.name}</span>
                         {isEnabled && stats.successToday > 0 && (
-                          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-xs">
+                          <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
                             {stats.successToday} today
                           </Badge>
                         )}
@@ -238,7 +238,7 @@ export function ReannounceOverview({
                     >
                       <span className={cn(
                         "text-xs font-medium",
-                        isEnabled ? "text-emerald-500" : "text-muted-foreground"
+                        isEnabled ? "text-success" : "text-muted-foreground"
                       )}>
                         {isEnabled ? "On" : "Off"}
                       </span>

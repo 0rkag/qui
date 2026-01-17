@@ -481,7 +481,7 @@ export function AdvancedNetworkForm({ instanceId, onSuccess }: AdvancedNetworkFo
                     description="Maximum memory used for piece checking"
                   />
                   {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                    <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                   )}
                 </div>
               )}
@@ -581,7 +581,7 @@ export function AdvancedNetworkForm({ instanceId, onSuccess }: AdvancedNetworkFo
                   description="Percentage of peers to disconnect/reconnect"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -610,7 +610,7 @@ export function AdvancedNetworkForm({ instanceId, onSuccess }: AdvancedNetworkFo
                   description="Peer turnover threshold percentage"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -639,7 +639,7 @@ export function AdvancedNetworkForm({ instanceId, onSuccess }: AdvancedNetworkFo
                   description="How often to perform peer turnover"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}

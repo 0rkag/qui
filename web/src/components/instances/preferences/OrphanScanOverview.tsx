@@ -43,11 +43,11 @@ function getStatusBadge(status: OrphanScanRunStatus, filesFound?: number) {
     case "scanning":
       return { variant: "outline" as const, className: "bg-blue-500/10 text-blue-500 border-blue-500/20", label: status === "pending" ? "Starting..." : "Scanning..." }
     case "preview_ready":
-      return { variant: "outline" as const, className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20", label: "Ready for Review" }
+      return { variant: "outline" as const, className: "bg-warning/10 text-warning border-warning/20", label: "Ready for Review" }
     case "deleting":
-      return { variant: "outline" as const, className: "bg-orange-500/10 text-orange-500 border-orange-500/20", label: "Deleting..." }
+      return { variant: "outline" as const, className: "bg-warning/10 text-warning border-warning/20", label: "Deleting..." }
     case "completed":
-      return { variant: "outline" as const, className: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20", label: "Completed" }
+      return { variant: "outline" as const, className: "bg-success/10 text-success border-success/20", label: "Completed" }
     case "failed":
       return { variant: "outline" as const, className: "bg-destructive/10 text-destructive border-destructive/30", label: "Failed" }
     case "canceled":
@@ -171,7 +171,7 @@ function InstanceOrphanScanItem({
               {latestRun?.status === "completed" && latestRun.errorMessage && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    <AlertTriangle className="h-4 w-4 text-warning" />
                   </TooltipTrigger>
                   <TooltipContent>
                     <p>Partial failure - check recent scans</p>
@@ -194,7 +194,7 @@ function InstanceOrphanScanItem({
           >
             <span className={cn(
               "text-xs font-medium",
-              isEnabled ? "text-emerald-500" : "text-muted-foreground"
+              isEnabled ? "text-success" : "text-muted-foreground"
             )}>
               {isEnabled ? "On" : "Off"}
             </span>
@@ -286,9 +286,9 @@ function InstanceOrphanScanItem({
 
           {/* Preview ready actions */}
           {latestRun?.status === "preview_ready" && latestRun.filesFound > 0 && (
-            <div className="p-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10 space-y-3">
+            <div className="p-4 rounded-lg border border-warning/40 bg-warning/10 space-y-3">
               <div className="flex items-start gap-3">
-                <Files className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />
+                <Files className="h-5 w-5 text-warning shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm">
                     {latestRun.filesFound} orphan file{latestRun.filesFound !== 1 ? "s" : ""} found
@@ -353,7 +353,7 @@ function InstanceOrphanScanItem({
                         {hasWarning && (
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
+                              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
                             </TooltipTrigger>
                             <TooltipContent>
                               <p>Partial failure - expand for details</p>
@@ -396,7 +396,7 @@ function InstanceOrphanScanItem({
                             "relative p-3 rounded-md text-sm font-mono whitespace-pre-wrap break-all",
                             run.status === "failed"
                               ? "bg-destructive/10 text-destructive border border-destructive/20"
-                              : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border border-yellow-500/20"
+                              : "bg-warning/10 text-warning border border-warning/20"
                           )}>
                             <Button
                               variant="ghost"

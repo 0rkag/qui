@@ -79,7 +79,7 @@ export function IndexerActivityPanel() {
             {activity?.scheduler && activity.scheduler.inFlightTasks.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <Zap className="h-4 w-4 text-yellow-500" />
+                  <Zap className="h-4 w-4 text-warning" />
                   Running ({activity.scheduler.inFlightTasks.length})
                 </div>
                 <div className="space-y-1">
@@ -114,7 +114,7 @@ export function IndexerActivityPanel() {
             {activity?.cooldownIndexers && activity.cooldownIndexers.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-medium">
-                  <Pause className="h-4 w-4 text-orange-500" />
+                  <Pause className="h-4 w-4 text-warning" />
                   Rate Limited ({activity.cooldownIndexers.length})
                 </div>
                 <div className="space-y-1">
@@ -140,7 +140,7 @@ export function IndexerActivityPanel() {
 
 function TaskRow({ task, status }: { task: SchedulerTaskStatus; status: "running" | "queued" }) {
   const priorityColors: Record<string, string> = {
-    interactive: "text-green-500",
+    interactive: "text-success",
     rss: "text-blue-500",
     completion: "text-purple-500",
     background: "text-gray-500",
@@ -150,7 +150,7 @@ function TaskRow({ task, status }: { task: SchedulerTaskStatus; status: "running
     <div className="flex items-center justify-between gap-2 p-2 rounded bg-muted/30 text-sm">
       <div className="flex items-center gap-2 min-w-0">
         {status === "running" ? (
-          <Loader2 className="h-3 w-3 animate-spin text-yellow-500 shrink-0" />
+          <Loader2 className="h-3 w-3 animate-spin text-warning shrink-0" />
         ) : (
           <Clock className="h-3 w-3 text-blue-500 shrink-0" />
         )}
@@ -179,14 +179,14 @@ function CooldownRow({ cooldown }: { cooldown: IndexerCooldownStatus }) {
   return (
     <div className="flex items-center justify-between gap-2 p-2 rounded bg-muted/30 text-sm">
       <div className="flex items-center gap-2 min-w-0">
-        <Pause className="h-3 w-3 text-orange-500 shrink-0" />
+        <Pause className="h-3 w-3 text-warning shrink-0" />
         <span className="truncate font-medium">{cooldown.indexerName}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {isExpired ? (
-          <span className="text-xs text-green-500">Ready</span>
+          <span className="text-xs text-success">Ready</span>
         ) : (
-          <span className="text-xs text-orange-500">
+          <span className="text-xs text-warning">
             {formatRelativeTime(cooldownEnd, false)} left
           </span>
         )}

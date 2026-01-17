@@ -668,22 +668,22 @@ export function WorkflowsOverview({
   }
 
   const outcomeClasses: Record<AutomationActivity["outcome"], string> = {
-    success: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+    success: "bg-success/10 text-success border-success/20",
     failed: "bg-destructive/10 text-destructive border-destructive/30",
   }
 
   const actionClasses: Record<AutomationActivity["action"], string> = {
     deleted_ratio: "bg-blue-500/10 text-blue-500 border-blue-500/20",
     deleted_seeding: "bg-purple-500/10 text-purple-500 border-purple-500/20",
-    deleted_unregistered: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+    deleted_unregistered: "bg-warning/10 text-warning border-warning/20",
     deleted_condition: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20",
     delete_failed: "bg-destructive/10 text-destructive border-destructive/30",
-    limit_failed: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    limit_failed: "bg-warning/10 text-warning border-warning/20",
     tags_changed: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
-    category_changed: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+    category_changed: "bg-success/10 text-success border-success/20",
     speed_limits_changed: "bg-sky-500/10 text-sky-500 border-sky-500/20",
     share_limits_changed: "bg-violet-500/10 text-violet-500 border-violet-500/20",
-    paused: "bg-amber-500/10 text-amber-500 border-amber-500/20",
+    paused: "bg-warning/10 text-warning border-warning/20",
   }
 
   const openCreateDialog = (instanceId: number) => {
@@ -779,13 +779,13 @@ export function WorkflowsOverview({
                       {rules.length > 0 && (
                         <Badge variant="outline" className={cn(
                           "text-xs",
-                          enabledRulesCount > 0 && "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                          enabledRulesCount > 0 && "bg-success/10 text-success border-success/20"
                         )}>
                           {enabledRulesCount}/{rules.length} active
                         </Badge>
                       )}
                       {activityStats.deletionsToday > 0 && (
-                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-xs">
+                        <Badge variant="outline" className="bg-success/10 text-success border-success/20 text-xs">
                           {activityStats.deletionsToday} today
                         </Badge>
                       )}
@@ -1218,12 +1218,12 @@ export function WorkflowsOverview({
                                         return (
                                           <div className="flex flex-wrap gap-1.5">
                                             {addedTags.map(([tag, count]) => (
-                                              <Badge key={`add-${tag}`} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                                              <Badge key={`add-${tag}`} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-success/10 text-success border-success/20">
                                                 +{tag} ({count})
                                               </Badge>
                                             ))}
                                             {removedTags.map(([tag, count]) => (
-                                              <Badge key={`rm-${tag}`} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-red-500/10 text-red-500 border-red-500/20">
+                                              <Badge key={`rm-${tag}`} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-destructive/10 text-destructive border-destructive/20">
                                                 -{tag} ({count})
                                               </Badge>
                                             ))}
@@ -1236,7 +1236,7 @@ export function WorkflowsOverview({
                                         return (
                                           <div className="flex flex-wrap gap-1.5">
                                             {categories.map(([category, count]) => (
-                                              <Badge key={category} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                                              <Badge key={category} variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-success/10 text-success border-success/20">
                                                 {category} ({count})
                                               </Badge>
                                             ))}
@@ -1651,7 +1651,7 @@ function RulePreview({
           </Badge>
         )}
         {rule.conditions?.category?.enabled && (
-          <Badge variant="outline" className="text-[10px] px-1.5 h-5 gap-0.5 cursor-default text-emerald-600 border-emerald-600/50">
+          <Badge variant="outline" className="text-[10px] px-1.5 h-5 gap-0.5 cursor-default text-success border-success/50">
             <Folder className="h-3 w-3" />
             {rule.conditions.category.category}
           </Badge>

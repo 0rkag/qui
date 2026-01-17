@@ -267,17 +267,17 @@ interface ParsedLogEntry {
 const LEVEL_COLORS: Record<LogLevel, string> = {
   trace: "text-muted-foreground",
   debug: "text-blue-400",
-  info: "text-green-400",
-  warn: "text-yellow-400",
-  error: "text-red-400",
+  info: "text-success",
+  warn: "text-warning",
+  error: "text-destructive",
 }
 
 const LEVEL_BADGE_COLORS: Record<LogLevel, string> = {
   trace: "bg-muted text-muted-foreground",
   debug: "bg-blue-500/20 text-blue-400",
-  info: "bg-green-500/20 text-green-400",
-  warn: "bg-yellow-500/20 text-yellow-400",
-  error: "bg-red-500/20 text-red-400",
+  info: "bg-success/20 text-success",
+  warn: "bg-warning/20 text-warning",
+  error: "bg-destructive/20 text-destructive",
 }
 
 const VALID_LEVELS = new Set<LogLevel>(["trace", "debug", "info", "warn", "error"])
@@ -683,13 +683,13 @@ function LiveLogViewer({ configPath }: { configPath?: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <div
-            className={`h-2 w-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}
+            className={`h-2 w-2 rounded-full ${isConnected ? "bg-success" : "bg-destructive"}`}
           />
           <span className="text-sm text-muted-foreground">
             {isConnected ? "Connected" : "Disconnected"}
           </span>
           {error && (
-            <span className="flex items-center gap-1 text-sm text-yellow-500">
+            <span className="flex items-center gap-1 text-sm text-warning">
               <AlertCircle className="h-3 w-3" />
               {error}
             </span>
@@ -858,7 +858,7 @@ function LiveLogViewer({ configPath }: { configPath?: string }) {
             {autoScroll ? ` (${LOG_SOFT_CAP.toLocaleString()} max)` : ` (${LOG_HARD_CAP.toLocaleString()} max while paused)`}
           </span>
           {droppedWhilePaused && (
-            <span className="text-yellow-500">• oldest entries dropped</span>
+            <span className="text-warning">• oldest entries dropped</span>
           )}
         </span>
         {configPath && (

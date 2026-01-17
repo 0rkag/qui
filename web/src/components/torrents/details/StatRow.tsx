@@ -45,10 +45,10 @@ export const StatRow = memo(function StatRow({
 
   const highlightClass = highlight
     ? {
-        green: "text-green-500",
+        green: "text-success",
         blue: "text-blue-500",
-        yellow: "text-yellow-500",
-        red: "text-red-500",
+        yellow: "text-warning",
+        red: "text-destructive",
       }[highlight]
     : ""
 

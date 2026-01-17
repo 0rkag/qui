@@ -971,7 +971,7 @@ export const TorrentDetailsPanel = memo(function TorrentDetailsPanel({ instanceI
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-1">
                               <p className="text-xs text-muted-foreground">Download Speed</p>
-                              <p className="text-base font-semibold text-green-500">{formatSpeedWithUnit(properties.dl_speed || 0, speedUnit)}</p>
+                              <p className="text-base font-semibold text-success">{formatSpeedWithUnit(properties.dl_speed || 0, speedUnit)}</p>
                               <p className="text-xs text-muted-foreground">avg: {formatSpeedWithUnit(properties.dl_speed_avg || 0, speedUnit)}</p>
                               <p className="text-xs text-muted-foreground">Limit: {downloadLimitLabel}</p>
                             </div>
@@ -1304,7 +1304,7 @@ export const TorrentDetailsPanel = memo(function TorrentDetailsPanel({ instanceI
                                     <p className="text-xs text-muted-foreground">Peer Progress</p>
                                     <div className="flex items-center gap-2">
                                       <Progress value={progressPercent} className="flex-1 h-1.5" />
-                                      <span className={`text-xs font-medium ${isSeeder ? "text-green-500" : ""}`}>
+                                      <span className={`text-xs font-medium ${isSeeder ? "text-success" : ""}`}>
                                         {progressPercent}%
                                       </span>
                                     </div>
@@ -1314,7 +1314,7 @@ export const TorrentDetailsPanel = memo(function TorrentDetailsPanel({ instanceI
                                   <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1">
                                       <p className="text-xs text-muted-foreground">Download Speed</p>
-                                      <p className={`text-sm font-medium ${peer.dl_speed && peer.dl_speed > 0 ? "text-green-500" : ""}`}>
+                                      <p className={`text-sm font-medium ${peer.dl_speed && peer.dl_speed > 0 ? "text-success" : ""}`}>
                                         {formatSpeedWithUnit(peer.dl_speed || 0, speedUnit)}
                                       </p>
                                     </div>
@@ -1672,7 +1672,7 @@ export const TorrentDetailsPanel = memo(function TorrentDetailsPanel({ instanceI
                           } else if (trackerHealth === "tracker_down") {
                             statusLabel = "Tracker Down"
                             statusVariant = "outline"
-                            statusClass = "text-yellow-500 border-yellow-500/40 bg-yellow-500/10"
+                            statusClass = "text-warning border-warning/40 bg-warning/10"
                           } else {
                             // Normal state-based styling
                             if (match.state === "downloading" || match.state === "uploading") {
@@ -1777,7 +1777,7 @@ export const TorrentDetailsPanel = memo(function TorrentDetailsPanel({ instanceI
                                 </div>
                                 <div className="flex items-center gap-3">
                                   <Progress value={progressPercent} className="flex-1 h-1.5" />
-                                  <span className={cn("text-xs font-medium", isComplete ? "text-green-500" : "text-muted-foreground")}>
+                                  <span className={cn("text-xs font-medium", isComplete ? "text-success" : "text-muted-foreground")}>
                                     {Math.round(progressPercent)}%
                                   </span>
                                 </div>

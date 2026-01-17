@@ -265,7 +265,7 @@ function getStatusBadgeProps(torrent: Torrent, supportsTrackerHealth: boolean): 
     if (trackerHealth === "tracker_down") {
       label = "Tracker Down"
       variant = "outline"
-      className = "text-yellow-500 border-yellow-500/40 bg-yellow-500/10"
+      className = "text-warning border-warning/40 bg-warning/10"
     } else if (trackerHealth === "unregistered") {
       label = "Unregistered"
       variant = "outline"
@@ -623,6 +623,13 @@ export const TorrentTableOptimized = memo(function TorrentTableOptimized({
     )
     return (otherInstances?.length ?? 0) > 0
   }, [instances, instance, instanceId, isAllSelected])
+
+  // Eligible target instances for moving torrents (connected with local filesystem access)
+  const eligibleTargetInstances = useMemo(() => {
+    return (instances ?? []).filter(
+      (i) => i.id !== instanceId && i.connected && i.hasLocalFilesystemAccess
+    )
+  }, [instances, instanceId])
 
   const moveToInstanceDisabledReason = useMemo(() => {
     // Cannot move when Select All is active - requires loading all hashes

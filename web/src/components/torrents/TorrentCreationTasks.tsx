@@ -27,10 +27,10 @@ interface TorrentCreationTasksProps {
 }
 
 const STATUS_COLORS: Record<TorrentCreationStatus, string> = {
-  Queued: "bg-yellow-500 p-1",
+  Queued: "bg-warning p-1",
   Running: "bg-blue-500 p-1",
-  Finished: "bg-green-500 p-1",
-  Failed: "bg-red-500 p-1",
+  Finished: "bg-success p-1",
+  Failed: "bg-destructive p-1",
 }
 
 const STATUS_ICONS: Record<TorrentCreationStatus, React.ReactNode> = {

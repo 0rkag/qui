@@ -245,7 +245,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                     description="Port used for incoming BitTorrent connections"
                   />
                   {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                    <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                   )}
                 </div>
               )}
@@ -465,7 +465,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                   description="Maximum connections across all torrents"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -492,7 +492,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                   description="Maximum connections per individual torrent"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -519,7 +519,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                   description="Maximum upload slots across all torrents"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -546,7 +546,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                   description="Maximum upload slots per individual torrent"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -592,7 +592,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                   description="Minimum port for outgoing connections (0 = no limit)"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -620,7 +620,7 @@ export function ConnectionSettingsForm({ instanceId, onSuccess }: ConnectionSett
                   description="Maximum port for outgoing connections (0 = no limit)"
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}

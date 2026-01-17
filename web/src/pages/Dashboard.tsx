@@ -232,8 +232,8 @@ function InstanceCard({
   const ConnectionStatusIcon = isConnectable ? Globe : isFirewalled ? BrickWallFire : Ban
   const connectionStatusIconClass = (() => {
     if (!hasConnectionStatus) return ""
-    if (isConnectable) return "text-green-500"
-    if (isFirewalled) return "text-amber-500"
+    if (isConnectable) return "text-success"
+    if (isFirewalled) return "text-warning"
     return "text-destructive"
   })()
 
@@ -272,7 +272,7 @@ function InstanceCard({
               {instance.reannounceSettings?.enabled && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <RefreshCcw className="h-4 w-4 text-green-600" />
+                    <RefreshCcw className="h-4 w-4 text-success" />
                   </TooltipTrigger>
                   <TooltipContent>
                     Automatic tracker reannounce enabled
@@ -299,9 +299,9 @@ function InstanceCard({
                       className={`cursor-pointer ${isToggling ? "opacity-50" : ""}`}
                     >
                       {altSpeedEnabled ? (
-                        <Turtle className="h-4 w-4 text-orange-600" />
+                        <Turtle className="h-4 w-4 text-warning" />
                       ) : (
-                        <Rabbit className="h-4 w-4 text-green-600" />
+                        <Rabbit className="h-4 w-4 text-success" />
                       )}
                     </span>
                   </TooltipTrigger>
@@ -453,9 +453,9 @@ function InstanceCard({
                 )}
                 {(torrentCounts?.status?.tracker_down || 0) > 0 && (
                   <div className="flex items-center gap-2 text-xs">
-                    <AlertCircle className="h-3 w-3 text-yellow-500 flex-shrink-0" />
-                    <span className="text-yellow-500">Tracker Down</span>
-                    <span className="ml-auto font-medium text-yellow-500">{torrentCounts?.status?.tracker_down}</span>
+                    <AlertCircle className="h-3 w-3 text-warning flex-shrink-0" />
+                    <span className="text-warning">Tracker Down</span>
+                    <span className="ml-auto font-medium text-warning">{torrentCounts?.status?.tracker_down}</span>
                   </div>
                 )}
                 {(torrentCounts?.status?.errored || 0) > 0 && (

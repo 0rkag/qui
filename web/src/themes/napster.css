@@ -42,6 +42,10 @@
   --chart-3: oklch(0.55 0.15 145);
   --chart-4: oklch(0.50 0.12 265);
   --chart-5: oklch(0.55 0.18 27);
+  --success: oklch(0.55 0.15 145);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.82 0.18 100);
+  --warning-foreground: oklch(0.15 0 0);
   /* Sidebar like Windows Explorer tree view - slightly darker gray */
   --sidebar: oklch(0.75 0 0);
   --sidebar-foreground: oklch(0.15 0 0);
@@ -98,6 +102,10 @@
   --chart-3: oklch(0.55 0.15 145);
   --chart-4: oklch(0.50 0.12 265);
   --chart-5: oklch(0.55 0.18 27);
+  --success: oklch(0.55 0.15 145);
+  --success-foreground: oklch(1 0 0);
+  --warning: oklch(0.82 0.18 100);
+  --warning-foreground: oklch(0.15 0 0);
   --sidebar: oklch(0.75 0 0);
   --sidebar-foreground: oklch(0.15 0 0);
   --sidebar-primary: oklch(0.30 0.14 265);
@@ -139,6 +147,10 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

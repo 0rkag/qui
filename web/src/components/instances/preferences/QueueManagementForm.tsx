@@ -134,7 +134,7 @@ export function QueueManagementForm({ instanceId, onSuccess }: QueueManagementFo
                   allowUnlimited={true}
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -162,7 +162,7 @@ export function QueueManagementForm({ instanceId, onSuccess }: QueueManagementFo
                   allowUnlimited={true}
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}
@@ -190,7 +190,7 @@ export function QueueManagementForm({ instanceId, onSuccess }: QueueManagementFo
                   allowUnlimited={true}
                 />
                 {field.state.meta.errors.length > 0 && (
-                  <p className="text-sm text-red-500">{field.state.meta.errors[0]}</p>
+                  <p className="text-sm text-destructive">{field.state.meta.errors[0]}</p>
                 )}
               </div>
             )}

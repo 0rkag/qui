@@ -139,13 +139,13 @@ export function ArrInstancesManager() {
                 {instance.enabled ? "Enabled" : "Disabled"}
               </Badge>
               {instance.last_test_status === "ok" && (
-                <Badge variant="outline" className="text-green-500 border-green-500/50">
+                <Badge variant="outline" className="text-success border-success/50">
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Connected
                 </Badge>
               )}
               {instance.last_test_status === "error" && (
-                <Badge variant="outline" className="text-red-500 border-red-500/50">
+                <Badge variant="outline" className="text-destructive border-destructive/50">
                   <XCircle className="h-3 w-3 mr-1" />
                   Failed
                 </Badge>
@@ -500,7 +500,7 @@ function ArrInstanceForm({ instance, onSubmit, onCancel, isPending }: ArrInstanc
       </div>
 
       {testResult && (
-        <div className={`text-sm p-2 rounded ${testResult.success ? "bg-green-500/10 text-green-500" : "bg-destructive/10 text-destructive"}`}>
+        <div className={`text-sm p-2 rounded ${testResult.success ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>
           {testResult.success ? "Connection successful" : `Connection failed: ${testResult.error}`}
         </div>
       )}

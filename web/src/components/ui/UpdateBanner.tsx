@@ -37,23 +37,20 @@ export function UpdateBanner() {
   }
 
   return (
-    <div className={cn(
-      "mb-3 rounded-md border border-green-200 bg-green-50 p-3",
-      "dark:border-green-800 dark:bg-green-950/50"
-    )}>
+    <div className="mb-3 rounded-md border border-success/30 bg-success/10 p-3">
       <div className="flex items-start gap-2">
-        <Download className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+        <Download className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-green-800 dark:text-green-200">
+          <p className="text-sm font-medium text-success">
             Update Available
           </p>
-          <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+          <p className="text-xs text-success/80 mt-1">
             Version {updateInfo.tag_name} is now available
           </p>
           <Button
             size="sm"
             variant="outline"
-            className="mt-2 h-6 text-xs border-green-300 text-green-700 hover:bg-green-100 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900"
+            className="mt-2 h-6 text-xs border-success/50 text-success hover:bg-success/20"
             onClick={handleViewUpdate}
           >
             View Release
@@ -62,7 +59,7 @@ export function UpdateBanner() {
         <Button
           size="icon"
           variant="ghost"
-          className="h-4 w-4 text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-200"
+          className="h-4 w-4 text-success hover:text-success/80"
           onClick={handleDismiss}
         >
           <X className="h-3 w-3" />
