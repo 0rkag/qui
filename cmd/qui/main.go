@@ -726,6 +726,7 @@ func (app *Application) runServer() {
 		ArrService:                       arrService,
 		TransferService:                  transferService,
 		InstancePathMappingStore:         instancePathMappingStore,
+		InstanceConnectionStore:          instanceConnectionStore,
 	})
 
 	// Reconcile any cross-seed runs left in 'running' status from a previous crash/restart.

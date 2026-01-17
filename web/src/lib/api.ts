@@ -62,6 +62,11 @@ import type {
   InstancePathMappingUpdate,
   PathTestRequest,
   PathTestResponse,
+  InstanceConnection,
+  InstanceConnectionCreate,
+  InstanceConnectionUpdate,
+  SSHTestRequest,
+  SSHTestResult,
   LocalCrossSeedMatch,
   LogExclusions,
   LogExclusionsInput,
@@ -631,6 +636,42 @@ class ApiClient {
     return this.request<PathTestResponse>(`/instances/${instanceId}/path-mappings/test`, {
       method: "POST",
       body: JSON.stringify(data),
+    })
+  }
+
+  // Instance connection endpoints (SSH/remote access)
+  async getConnections(instanceId: number): Promise<InstanceConnection[]> {
+    return this.request<InstanceConnection[]>(`/instances/${instanceId}/connections`)
+  }
+
+  async createConnection(instanceId: number, data: InstanceConnectionCreate): Promise<InstanceConnection> {
+    return this.request<InstanceConnection>(`/instances/${instanceId}/connections`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updateConnection(instanceId: number, connectionId: number, data: InstanceConnectionUpdate): Promise<InstanceConnection> {
+    return this.request<InstanceConnection>(`/instances/${instanceId}/connections/${connectionId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async deleteConnection(instanceId: number, connectionId: number): Promise<void> {
+    return this.request(`/instances/${instanceId}/connections/${connectionId}`, { method: "DELETE" })
+  }
+
+  async testSSHConnection(instanceId: number, data: SSHTestRequest): Promise<SSHTestResult> {
+    return this.request<SSHTestResult>(`/instances/${instanceId}/connections/test`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async testSSHConnectionExisting(instanceId: number, connectionId: number): Promise<SSHTestResult> {
+    return this.request<SSHTestResult>(`/instances/${instanceId}/connections/${connectionId}/test`, {
+      method: "POST",
     })
   }
 

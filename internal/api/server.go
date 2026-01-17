@@ -82,6 +82,7 @@ type Server struct {
 	arrService                       *arr.Service
 	transferService                  *transfer.Service
 	instancePathMappingStore         *models.InstancePathMappingStore
+	instanceConnectionStore          *models.InstanceConnectionStore
 }
 
 type Dependencies struct {
@@ -120,6 +121,7 @@ type Dependencies struct {
 	ArrService                       *arr.Service
 	TransferService                  *transfer.Service
 	InstancePathMappingStore         *models.InstancePathMappingStore
+	InstanceConnectionStore          *models.InstanceConnectionStore
 }
 
 func NewServer(deps *Dependencies) *Server {
@@ -165,6 +167,7 @@ func NewServer(deps *Dependencies) *Server {
 		arrService:                       deps.ArrService,
 		transferService:                  deps.TransferService,
 		instancePathMappingStore:         deps.InstancePathMappingStore,
+		instanceConnectionStore:          deps.InstanceConnectionStore,
 	}
 
 	return &s
@@ -316,6 +319,12 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	var instancePathMappingsHandler *handlers.InstancePathMappingsHandler
 	if s.instancePathMappingStore != nil {
 		instancePathMappingsHandler = handlers.NewInstancePathMappingsHandler(s.instancePathMappingStore)
+	}
+
+	// Instance connections handler (for SSH/remote access)
+	var instanceConnectionsHandler *handlers.InstanceConnectionsHandler
+	if s.instanceConnectionStore != nil {
+		instanceConnectionsHandler = handlers.NewInstanceConnectionsHandler(s.instanceConnectionStore)
 	}
 
 	// Transfer handler (if service is available)
@@ -503,6 +512,21 @@ func (s *Server) Handler() (*chi.Mux, error) {
 								r.Get("/", instancePathMappingsHandler.Get)
 								r.Put("/", instancePathMappingsHandler.Update)
 								r.Delete("/", instancePathMappingsHandler.Delete)
+							})
+						})
+					}
+
+					// Instance connections for SSH/remote access
+					if instanceConnectionsHandler != nil {
+						r.Route("/connections", func(r chi.Router) {
+							r.Get("/", instanceConnectionsHandler.List)
+							r.Post("/", instanceConnectionsHandler.Create)
+							r.Post("/test", instanceConnectionsHandler.Test)
+							r.Route("/{id}", func(r chi.Router) {
+								r.Get("/", instanceConnectionsHandler.Get)
+								r.Put("/", instanceConnectionsHandler.Update)
+								r.Delete("/", instanceConnectionsHandler.Delete)
+								r.Post("/test", instanceConnectionsHandler.TestExisting)
 							})
 						})
 					}

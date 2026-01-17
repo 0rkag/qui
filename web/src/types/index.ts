@@ -185,6 +185,53 @@ export interface PathTestResponse {
   noMatchFound: boolean
 }
 
+// Instance connection types (SSH/remote access)
+export type ConnectionProtocol = "ssh" | "sftp" | "ftp"
+
+export interface InstanceConnection {
+  id: number
+  instanceId: number
+  protocol: ConnectionProtocol
+  host: string
+  port: number
+  username: string
+  privateKeyPath?: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InstanceConnectionCreate {
+  protocol: ConnectionProtocol
+  host: string
+  port?: number
+  username: string
+  privateKeyPath?: string
+  enabled?: boolean
+}
+
+export interface InstanceConnectionUpdate {
+  host: string
+  port: number
+  username: string
+  privateKeyPath?: string
+  enabled?: boolean
+}
+
+export interface SSHTestRequest {
+  protocol: ConnectionProtocol
+  host: string
+  port?: number
+  username: string
+  privateKeyPath?: string
+}
+
+export interface SSHTestResult {
+  success: boolean
+  message: string
+  details?: string
+}
+
 // Condition field types for expression-based automations
 export type ConditionField =
   // String fields

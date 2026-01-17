@@ -121,7 +121,7 @@ export function InstancePreferencesDialog({
                 Configure path translations between this instance and the QUI server
               </p>
             </div>
-            <PathMappingsEditor instanceId={instanceId} />
+            <PathMappingsEditor instanceId={instanceId} instanceName={instanceName} />
           </TabsContent>
 
           <TabsContent value="seeding" className="space-y-4">
