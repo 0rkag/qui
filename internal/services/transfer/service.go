@@ -67,9 +67,10 @@ func New(
 	store *models.TransferStore,
 	instanceStore InstanceProvider,
 	syncManager SyncManager,
+	pathMappingStore *models.InstancePathMappingStore,
 ) *Service {
-	// Create the local executor
-	localExecutor := NewLocalExecutor(syncManager, instanceStore)
+	// Create the local executor with optional path mapping support
+	localExecutor := NewLocalExecutorWithPathResolver(syncManager, instanceStore, pathMappingStore)
 
 	// Create the registry with available executors
 	registry := NewExecutorRegistry(localExecutor)

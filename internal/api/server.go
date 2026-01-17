@@ -81,6 +81,7 @@ type Server struct {
 	arrInstanceStore                 *models.ArrInstanceStore
 	arrService                       *arr.Service
 	transferService                  *transfer.Service
+	instancePathMappingStore         *models.InstancePathMappingStore
 }
 
 type Dependencies struct {
@@ -118,6 +119,7 @@ type Dependencies struct {
 	ArrInstanceStore                 *models.ArrInstanceStore
 	ArrService                       *arr.Service
 	TransferService                  *transfer.Service
+	InstancePathMappingStore         *models.InstancePathMappingStore
 }
 
 func NewServer(deps *Dependencies) *Server {
@@ -162,6 +164,7 @@ func NewServer(deps *Dependencies) *Server {
 		arrInstanceStore:                 deps.ArrInstanceStore,
 		arrService:                       deps.ArrService,
 		transferService:                  deps.TransferService,
+		instancePathMappingStore:         deps.InstancePathMappingStore,
 	}
 
 	return &s
@@ -308,6 +311,12 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	dashboardSettingsHandler := handlers.NewDashboardSettingsHandler(s.dashboardSettingsStore)
 	logExclusionsHandler := handlers.NewLogExclusionsHandler(s.logExclusionsStore)
 	logsHandler := handlers.NewLogsHandler(s.config)
+
+	// Instance path mappings handler (if store is available)
+	var instancePathMappingsHandler *handlers.InstancePathMappingsHandler
+	if s.instancePathMappingStore != nil {
+		instancePathMappingsHandler = handlers.NewInstancePathMappingsHandler(s.instancePathMappingStore)
+	}
 
 	// Transfer handler (if service is available)
 	var transfersHandler *handlers.TransfersHandler
@@ -482,6 +491,21 @@ func (s *Server) Handler() (*chi.Mux, error) {
 					r.Get("/capabilities", instancesHandler.GetInstanceCapabilities)
 					r.Get("/reannounce/activity", instancesHandler.GetReannounceActivity)
 					r.Get("/reannounce/candidates", instancesHandler.GetReannounceCandidates)
+
+					// Path mappings for canonical path translation
+					if instancePathMappingsHandler != nil {
+						r.Route("/path-mappings", func(r chi.Router) {
+							r.Get("/", instancePathMappingsHandler.List)
+							r.Post("/", instancePathMappingsHandler.Create)
+							r.Put("/reorder", instancePathMappingsHandler.Reorder)
+							r.Post("/test", instancePathMappingsHandler.TestPath)
+							r.Route("/{id}", func(r chi.Router) {
+								r.Get("/", instancePathMappingsHandler.Get)
+								r.Put("/", instancePathMappingsHandler.Update)
+								r.Delete("/", instancePathMappingsHandler.Delete)
+							})
+						})
+					}
 
 					// Torrent creator
 					r.Route("/torrent-creator", func(r chi.Router) {

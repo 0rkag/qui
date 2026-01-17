@@ -25,6 +25,7 @@ import (
 type LocalExecutor struct {
 	syncManager   SyncManager
 	instanceStore InstanceProvider
+	pathResolver  *models.PathResolver
 }
 
 // NewLocalExecutor creates a new LocalExecutor.
@@ -32,6 +33,19 @@ func NewLocalExecutor(syncManager SyncManager, instanceStore InstanceProvider) *
 	return &LocalExecutor{
 		syncManager:   syncManager,
 		instanceStore: instanceStore,
+	}
+}
+
+// NewLocalExecutorWithPathResolver creates a LocalExecutor with path mapping support.
+func NewLocalExecutorWithPathResolver(syncManager SyncManager, instanceStore InstanceProvider, pathMappingStore *models.InstancePathMappingStore) *LocalExecutor {
+	var resolver *models.PathResolver
+	if pathMappingStore != nil {
+		resolver = models.NewPathResolver(pathMappingStore)
+	}
+	return &LocalExecutor{
+		syncManager:   syncManager,
+		instanceStore: instanceStore,
+		pathResolver:  resolver,
 	}
 }
 
@@ -119,7 +133,28 @@ func (e *LocalExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepa
 	}
 
 	// 10. Compute target save path
-	result.TargetSavePath = e.computeTargetPath(props.SavePath, targetInstance, t.PathMappings)
+	// Use PathResolver for instance-level mappings if available
+	if e.pathResolver != nil {
+		resolvedPath, err := e.pathResolver.ResolveTargetPath(
+			ctx,
+			props.SavePath,
+			t.SourceInstanceID,
+			t.TargetInstanceID,
+			t.PathMappings,
+		)
+		if err != nil {
+			log.Warn().Err(err).Msg("[TRANSFER] Path resolution failed, falling back to legacy method")
+			result.TargetSavePath = e.computeTargetPath(props.SavePath, targetInstance, t.PathMappings)
+		} else {
+			result.TargetSavePath = resolvedPath
+			// If no mapping matched and HardlinkBaseDir is set, use it
+			if resolvedPath == props.SavePath && targetInstance.HardlinkBaseDir != "" {
+				result.TargetSavePath = targetInstance.HardlinkBaseDir
+			}
+		}
+	} else {
+		result.TargetSavePath = e.computeTargetPath(props.SavePath, targetInstance, t.PathMappings)
+	}
 
 	// 11. Determine link mode
 	linkMode, err := e.determineLinkMode(targetInstance, props.SavePath, result.TargetSavePath)

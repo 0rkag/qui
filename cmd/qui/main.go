@@ -584,9 +584,12 @@ func (app *Application) runServer() {
 	orphanScanStore := models.NewOrphanScanStore(db)
 	orphanScanService := orphanscan.NewService(orphanscan.DefaultConfig(), instanceStore, orphanScanStore, syncManager)
 
+	// Initialize instance path mapping store for canonical path translation
+	instancePathMappingStore := models.NewInstancePathMappingStore(db)
+
 	// Initialize transfer service for moving torrents between instances
 	transferStore := models.NewTransferStore(db)
-	transferService := transfer.New(transferStore, instanceStore, syncManager)
+	transferService := transfer.New(transferStore, instanceStore, syncManager, instancePathMappingStore)
 
 	dirScanStore := models.NewDirScanStore(db)
 	dirScanService := dirscan.NewService(dirscan.DefaultConfig(), dirScanStore, instanceStore, syncManager, jackettService, arrService, trackerCustomizationStore)
@@ -719,6 +722,7 @@ func (app *Application) runServer() {
 		ArrInstanceStore:                 arrInstanceStore,
 		ArrService:                       arrService,
 		TransferService:                  transferService,
+		InstancePathMappingStore:         instancePathMappingStore,
 	})
 
 	// Reconcile any cross-seed runs left in 'running' status from a previous crash/restart.
