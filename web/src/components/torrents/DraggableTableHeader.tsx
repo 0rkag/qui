@@ -69,7 +69,10 @@ export function DraggableTableHeader({ header, columnFilters = [], viewMode = "n
       <div
         className={`${headerPadding} ${viewMode === "dense" ? "h-7 text-xs" : "h-10 text-sm"} text-left font-medium text-muted-foreground flex items-center ${canSort ? "cursor-pointer select-none" : ""
           } ${column.id !== "select" ? "cursor-grab active:cursor-grabbing" : ""
-          }`}
+          } ${canSort ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-sm" : ""}`}
+        role={canSort ? "button" : undefined}
+        tabIndex={canSort ? 0 : undefined}
+        aria-label={canSort ? `Sort by ${(column.columnDef.meta as { headerString?: string })?.headerString || column.id}${column.getIsSorted() ? `, currently sorted ${column.getIsSorted()}` : ""}` : undefined}
         onClick={event => {
           if (column.id === "select" || !canSort) {
             return
@@ -82,6 +85,21 @@ export function DraggableTableHeader({ header, columnFilters = [], viewMode = "n
 
           if (toggleSortingHandler) {
             toggleSortingHandler(event)
+          }
+        }}
+        onKeyDown={event => {
+          if (!canSort || column.id === "select") {
+            return
+          }
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            if (isTrackerIconHeader && trackerToggleHandler) {
+              trackerToggleHandler(event as unknown as React.MouseEvent)
+              return
+            }
+            if (toggleSortingHandler) {
+              toggleSortingHandler(event as unknown as React.MouseEvent)
+            }
           }
         }}
         {...(column.id !== "select" ? attributes : {})}

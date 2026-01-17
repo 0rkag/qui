@@ -452,6 +452,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 size="sm"
                 onClick={() => triggerAction(TORRENT_ACTIONS.RESUME)}
                 disabled={isPending || isDisabled}
+                aria-label="Resume selected torrents"
               >
                 <Play className="h-4 w-4" />
               </Button>
@@ -466,6 +467,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 size="sm"
                 onClick={() => triggerAction(TORRENT_ACTIONS.PAUSE)}
                 disabled={isPending || isDisabled}
+                aria-label="Pause selected torrents"
               >
                 <Pause className="h-4 w-4" />
               </Button>
@@ -480,6 +482,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 size="sm"
                 onClick={handleRecheckClick}
                 disabled={isPending || isDisabled}
+                aria-label="Force recheck selected torrents"
               >
                 <CheckCircle className="h-4 w-4" />
               </Button>
@@ -494,6 +497,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 size="sm"
                 onClick={handleReannounceClick}
                 disabled={isPending || isDisabled}
+                aria-label="Reannounce selected torrents"
               >
                 <Radio className="h-4 w-4" />
               </Button>
@@ -513,6 +517,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                     size="sm"
                     onClick={() => triggerAction(TORRENT_ACTIONS.TOGGLE_SEQUENTIAL_DOWNLOAD, { enable: !allSeqDlEnabled })}
                     disabled={isPending || isDisabled}
+                    aria-label={`${allSeqDlEnabled ? "Disable" : "Enable"} sequential download`}
                   >
                     <Blocks className="h-4 w-4" />
                   </Button>
@@ -531,6 +536,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                     variant="ghost"
                     size="sm"
                     disabled={isPending || isDisabled}
+                    aria-label="Tag actions menu"
                   >
                     <Tag className="h-4 w-4" />
                   </Button>
@@ -563,6 +569,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 size="sm"
                 onClick={() => prepareCategoryAction(selectedHashes, selectedTorrents)}
                 disabled={isPending || isDisabled}
+                aria-label="Set category for selected torrents"
               >
                 <Folder className="h-4 w-4" />
               </Button>
@@ -577,6 +584,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 size="sm"
                 onClick={() => prepareLocationAction(selectedHashes, selectedTorrents)}
                 disabled={isPending || isDisabled}
+                aria-label="Set location for selected torrents"
               >
                 <FolderOpen className="h-4 w-4" />
               </Button>
@@ -593,6 +601,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                     variant="ghost"
                     size="sm"
                     disabled={isPending || isDisabled}
+                    aria-label="Queue priority menu"
                   >
                     <List className="h-4 w-4" />
                   </Button>
@@ -641,6 +650,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                     variant="ghost"
                     size="sm"
                     disabled={isPending || isDisabled}
+                    aria-label="Limits menu"
                   >
                     <Share2 className="h-4 w-4" />
                   </Button>
@@ -680,6 +690,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                     size="sm"
                     onClick={() => handleTmmClick(!allEnabled)}
                     disabled={isPending || isDisabled}
+                    aria-label={mixed ? "Torrent Management Mode (Mixed)" : allEnabled ? "Disable Torrent Management Mode" : "Enable Torrent Management Mode"}
                   >
                     <Settings2 className="h-4 w-4" />
                   </Button>
@@ -700,6 +711,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                   size="sm"
                   onClick={() => canMoveToInstance && prepareMoveToInstanceAction(selectedHashes, selectedTorrents)}
                   disabled={isPending || isDisabled || !canMoveToInstance}
+                  aria-label="Move selected torrents to another instance"
                 >
                   <ArrowRightLeft className="h-4 w-4" />
                 </Button>
@@ -721,6 +733,7 @@ export const TorrentManagementBar = memo(function TorrentManagementBar({
                 onClick={() => prepareDeleteAction(selectedHashes, selectedTorrents)}
                 disabled={isPending || isDisabled}
                 className="text-destructive hover:text-destructive"
+                aria-label="Delete selected torrents"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>

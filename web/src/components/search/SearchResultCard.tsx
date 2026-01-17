@@ -73,8 +73,9 @@ export function SearchResultCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 flex-shrink-0"
+                className="h-7 w-7 flex-shrink-0 min-h-[44px] min-w-[44px] -m-2"
                 onClick={(e) => e.stopPropagation()}
+                aria-label="More actions"
               >
                 <MoreVertical className="h-4 w-4" />
                 <span className="sr-only">Actions</span>

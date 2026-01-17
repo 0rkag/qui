@@ -9,7 +9,6 @@ import {
   AccordionItem,
   AccordionTrigger
 } from "@/components/ui/accordion"
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   ContextMenu,
@@ -91,19 +90,27 @@ interface FilterBadgeProps {
 
 function FilterBadge({ count, onClick }: FilterBadgeProps) {
   return (
-    <Badge
-      variant="secondary"
-      className="ml-2 h-5 px-1.5 text-xs cursor-pointer hover:bg-secondary/80"
+    <button
+      type="button"
+      className="ml-2 h-5 px-1.5 text-xs cursor-pointer inline-flex items-center rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       onClick={(e: React.MouseEvent) => {
         e.stopPropagation()
         onClick()
       }}
+      onKeyDown={(e: React.KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          e.stopPropagation()
+          onClick()
+        }
+      }}
+      aria-label={`Clear ${count} selected filter${count !== 1 ? "s" : ""}`}
     >
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-        <X className="size-3"/>
+        <X className="size-3" aria-hidden="true" />
         {count}
       </span>
-    </Badge>
+    </button>
   )
 }
 

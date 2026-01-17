@@ -95,6 +95,7 @@ export function MultiSelect({
                   <span
                     role="button"
                     tabIndex={0}
+                    aria-label={`Remove ${option?.label || item}`}
                     className="ml-1 ring-offset-background rounded-full outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 cursor-pointer"
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -112,7 +113,7 @@ export function MultiSelect({
                       handleUnselect(item)
                     }}
                   >
-                    <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                    <X className="h-3 w-3 text-muted-foreground hover:text-foreground" aria-hidden="true" />
                   </span>
                 </Badge>
               )})

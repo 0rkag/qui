@@ -273,17 +273,27 @@ export const ThemeToggle: React.FC = () => {
                         {colors.variations.map((variation) => {
                           const isSelected = currentVariation === variation.id;
                           return (
-                            <div
+                            <button
                               key={variation.id}
+                              type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleVariationSelect(theme.id, variation.id);
                               }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleVariationSelect(theme.id, variation.id);
+                                }
+                              }}
+                              aria-label={`Select ${variation.id} color variation`}
+                              aria-pressed={isSelected}
                               className={cn(
-                                "w-4 h-4 rounded-full transition-all cursor-pointer",
+                                "w-5 h-5 rounded-full transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                                 isSelected
                                   ? "ring-2 ring-black dark:ring-white"
-                                  : "ring-1 ring-black/10 dark:ring-white/10"
+                                  : "ring-1 ring-black/10 dark:ring-white/10 hover:ring-black/30 dark:hover:ring-white/30"
                               )}
                               style={{
                                 backgroundColor: variation.color,
