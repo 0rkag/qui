@@ -28,6 +28,7 @@ import (
 	"github.com/autobrr/qui/internal/services/dirscan"
 	"github.com/autobrr/qui/internal/services/license"
 	"github.com/autobrr/qui/internal/services/trackericons"
+	"github.com/autobrr/qui/internal/services/transfer"
 	"github.com/autobrr/qui/internal/update"
 	"github.com/autobrr/qui/internal/web"
 	"github.com/autobrr/qui/internal/web/swagger"
@@ -118,6 +119,12 @@ func newTestDependencies(t *testing.T) *Dependencies {
 		nil,
 		trackerCustomizationStore,
 	)
+	instancePathMappingStore := models.NewInstancePathMappingStore(db)
+	instanceStore, err := models.NewInstanceStore(db, []byte("01234567890123456789012345678901"))
+	require.NoError(t, err)
+	syncManager := qbittorrent.NewSyncManager(nil, trackerCustomizationStore)
+	transferStore := models.NewTransferStore(db)
+	transferService := transfer.New(transferStore, instanceStore, syncManager, instancePathMappingStore)
 
 	return &Dependencies{
 		Config: &config.AppConfig{
@@ -131,7 +138,7 @@ func newTestDependencies(t *testing.T) *Dependencies {
 		InstanceStore:             &models.InstanceStore{},
 		ClientAPIKeyStore:         &models.ClientAPIKeyStore{},
 		ClientPool:                &qbittorrent.ClientPool{},
-		SyncManager:               qbittorrent.NewSyncManager(nil, trackerCustomizationStore),
+		SyncManager:               syncManager,
 		WebHandler:                &web.Handler{},
 		LicenseService:            &license.Service{},
 		UpdateService:             &update.Service{},
@@ -141,6 +148,8 @@ func newTestDependencies(t *testing.T) *Dependencies {
 		TrackerCustomizationStore: trackerCustomizationStore,
 		DashboardSettingsStore:    models.NewDashboardSettingsStore(db),
 		DirScanService:            dirScanService,
+		InstancePathMappingStore:  instancePathMappingStore,
+		TransferService:           transferService,
 	}
 }
 

@@ -4143,6 +4143,194 @@ paths:
         '404':
           description: Run not found
 
+  # Instance Path Mappings API endpoints
+  /api/instances/{instanceID}/path-mappings:
+    get:
+      tags:
+        - Path Mappings
+      summary: List path mappings
+      description: Get all path mappings for an instance. Path mappings translate between instance-specific paths and canonical paths used by QUI.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      responses:
+        '200':
+          description: List of path mappings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InstancePathMapping'
+    post:
+      tags:
+        - Path Mappings
+      summary: Create path mapping
+      description: Create a new path mapping for an instance. Maps an instance-specific path to a canonical path.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePathMappingRequest'
+      responses:
+        '201':
+          description: Path mapping created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstancePathMapping'
+        '400':
+          description: Invalid request
+        '409':
+          description: Instance path already exists for this instance
+
+  /api/instances/{instanceID}/path-mappings/{id}:
+    get:
+      tags:
+        - Path Mappings
+      summary: Get path mapping
+      description: Get a specific path mapping by ID
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Path mapping ID
+      responses:
+        '200':
+          description: Path mapping details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstancePathMapping'
+        '404':
+          description: Path mapping not found
+    put:
+      tags:
+        - Path Mappings
+      summary: Update path mapping
+      description: Update an existing path mapping
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Path mapping ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePathMappingRequest'
+      responses:
+        '200':
+          description: Path mapping updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstancePathMapping'
+        '400':
+          description: Invalid request
+        '404':
+          description: Path mapping not found
+        '409':
+          description: Instance path already exists for this instance
+    delete:
+      tags:
+        - Path Mappings
+      summary: Delete path mapping
+      description: Delete a path mapping
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Path mapping ID
+      responses:
+        '204':
+          description: Path mapping deleted
+        '404':
+          description: Path mapping not found
+
+  /api/instances/{instanceID}/path-mappings/reorder:
+    put:
+      tags:
+        - Path Mappings
+      summary: Reorder path mappings
+      description: Update the sort order of multiple path mappings. Mappings are applied in sort order during path resolution.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - orders
+              properties:
+                orders:
+                  type: object
+                  additionalProperties:
+                    type: integer
+                  description: Map of path mapping ID to new sort order
+                  example:
+                    "1": 0
+                    "2": 1
+                    "3": 2
+      responses:
+        '204':
+          description: Sort order updated
+        '400':
+          description: Invalid request or mapping does not belong to instance
+
+  /api/instances/{instanceID}/path-mappings/test:
+    post:
+      tags:
+        - Path Mappings
+      summary: Test path resolution
+      description: Test how a path would be resolved using the instance's path mappings. Useful for verifying mappings before use.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - path
+              properties:
+                path:
+                  type: string
+                  description: The path to test
+                  example: "/downloads/movies"
+                direction:
+                  type: string
+                  enum: [to_canonical, from_canonical]
+                  default: to_canonical
+                  description: Direction of path translation
+      responses:
+        '200':
+          description: Path resolution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PathTestResponse'
+        '400':
+          description: Invalid request
+
   /health:
     get:
       tags:
@@ -6548,6 +6736,110 @@ components:
           default: true
           description: Whether to preserve the torrent's tags
 
+    InstancePathMapping:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier
+        instanceId:
+          type: integer
+          description: ID of the qBittorrent instance
+        instancePath:
+          type: string
+          description: Path as seen by the qBittorrent instance
+          example: "/downloads"
+        canonicalPath:
+          type: string
+          description: Canonical path as seen by QUI server
+          example: "/data/media"
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this mapping is active
+        description:
+          type: string
+          description: Optional description of this mapping
+        sortOrder:
+          type: integer
+          default: 0
+          description: Order in which mappings are evaluated (lower = earlier)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreatePathMappingRequest:
+      type: object
+      required:
+        - instancePath
+        - canonicalPath
+      properties:
+        instancePath:
+          type: string
+          description: Path as seen by the qBittorrent instance
+          example: "/downloads"
+        canonicalPath:
+          type: string
+          description: Canonical path as seen by QUI server
+          example: "/data/media"
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this mapping is active
+        description:
+          type: string
+          description: Optional description of this mapping
+        sortOrder:
+          type: integer
+          default: 0
+          description: Order in which mappings are evaluated
+
+    UpdatePathMappingRequest:
+      type: object
+      required:
+        - instancePath
+        - canonicalPath
+      properties:
+        instancePath:
+          type: string
+          description: Path as seen by the qBittorrent instance
+        canonicalPath:
+          type: string
+          description: Canonical path as seen by QUI server
+        enabled:
+          type: boolean
+          description: Whether this mapping is active
+        description:
+          type: string
+          description: Optional description of this mapping
+        sortOrder:
+          type: integer
+          description: Order in which mappings are evaluated
+
+    PathTestResponse:
+      type: object
+      properties:
+        inputPath:
+          type: string
+          description: The original path that was tested
+        outputPath:
+          type: string
+          description: The resulting path after applying mappings
+        direction:
+          type: string
+          enum: [to_canonical, from_canonical]
+          description: Direction of the translation
+        matchedRule:
+          type: string
+          description: Description of the mapping rule that was applied (if any)
+        noMatchFound:
+          type: boolean
+          description: True if no mapping matched and the path was returned unchanged
+
 tags:
   - name: Authentication
     description: User authentication and session management
@@ -6575,6 +6867,8 @@ tags:
     description: Directory scanner operations for data-based matching and injection
   - name: Orphan Scan
     description: Orphan file scanning and cleanup (files on disk not associated with any torrent)
+  - name: Path Mappings
+    description: Manage path mappings between instance-specific paths and canonical paths for cross-instance transfers
   - name: Transfers
     description: Move torrents between qBittorrent instances with hardlink/reflink support
   - name: Theme Licenses
