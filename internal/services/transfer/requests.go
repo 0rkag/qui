@@ -37,6 +37,8 @@ type TransferRequest struct {
 	DeleteFromSource bool              `json:"deleteFromSource"`
 	PreserveCategory bool              `json:"preserveCategory"`
 	PreserveTags     bool              `json:"preserveTags"`
+	Force            bool              `json:"force"`          // Allow overwriting existing files
+	VerifyTransfer   bool              `json:"verifyTransfer"` // Enable post-transfer checksum verification
 }
 
 // Validate validates the transfer request
@@ -68,6 +70,8 @@ type MoveRequest struct {
 	DeleteFromSource bool              `json:"deleteFromSource"`
 	PreserveCategory bool              `json:"preserveCategory"`
 	PreserveTags     bool              `json:"preserveTags"`
+	Force            bool              `json:"force"`
+	VerifyTransfer   bool              `json:"verifyTransfer"`
 }
 
 func (r *MoveRequest) Validate() error {

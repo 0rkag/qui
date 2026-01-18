@@ -22,6 +22,7 @@ const (
 	TransferStatePreparing      TransferState = "preparing"
 	TransferStateLinksCreating  TransferState = "links_creating"
 	TransferStateLinksCreated   TransferState = "links_created"
+	TransferStateVerifying      TransferState = "verifying"
 	TransferStateAddingTorrent  TransferState = "adding_torrent"
 	TransferStateTorrentAdded   TransferState = "torrent_added"
 	TransferStateDeletingSource TransferState = "deleting_source"
@@ -45,6 +46,7 @@ var validStates = map[TransferState]struct{}{
 	TransferStatePreparing:      {},
 	TransferStateLinksCreating:  {},
 	TransferStateLinksCreated:   {},
+	TransferStateVerifying:      {},
 	TransferStateAddingTorrent:  {},
 	TransferStateTorrentAdded:   {},
 	TransferStateDeletingSource: {},
@@ -84,6 +86,8 @@ type Transfer struct {
 	DeleteFromSource bool              `json:"deleteFromSource"`
 	PreserveCategory bool              `json:"preserveCategory"`
 	PreserveTags     bool              `json:"preserveTags"`
+	Force            bool              `json:"force"`          // Allow overwriting existing files
+	VerifyTransfer   bool              `json:"verifyTransfer"` // Enable post-transfer checksum verification
 	TargetCategory   string            `json:"targetCategory,omitempty"`
 	TargetTags       []string          `json:"targetTags,omitempty"`
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
@@ -153,14 +157,15 @@ func (s *TransferStore) Create(ctx context.Context, t *Transfer) (*Transfer, err
 		INSERT INTO transfers (
 			source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags,
+			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.SourceInstanceID, t.TargetInstanceID, t.TorrentHash, t.TorrentName,
 		t.State, nullString(t.SourceSavePath), nullString(t.TargetSavePath), nullString(t.LinkMode),
 		boolToInt(t.DeleteFromSource), boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
+		boolToInt(t.Force), boolToInt(t.VerifyTransfer),
 		nullString(t.TargetCategory), targetTagsJSON, pathMappingsJSON,
 		t.FilesTotal, t.FilesLinked, t.BytesTotal, t.BytesTransferred, nullString(t.Error),
 	)
@@ -181,7 +186,7 @@ func (s *TransferStore) Get(ctx context.Context, id int64) (*Transfer, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags,
+			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -197,7 +202,7 @@ func (s *TransferStore) GetByHash(ctx context.Context, hash string) (*Transfer, 
 	query := `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags,
+			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -249,6 +254,7 @@ func (s *TransferStore) Update(ctx context.Context, t *Transfer) error {
 			torrent_name = ?, state = ?,
 			source_save_path = ?, target_save_path = ?, link_mode = ?,
 			delete_from_source = ?, preserve_category = ?, preserve_tags = ?,
+			force = ?, verify_transfer = ?,
 			target_category = ?, target_tags = ?, path_mappings = ?,
 			files_total = ?, files_linked = ?, bytes_total = ?, bytes_transferred = ?,
 			error = ?, completed_at = ?
@@ -257,6 +263,7 @@ func (s *TransferStore) Update(ctx context.Context, t *Transfer) error {
 		t.TorrentName, t.State,
 		nullString(t.SourceSavePath), nullString(t.TargetSavePath), nullString(t.LinkMode),
 		boolToInt(t.DeleteFromSource), boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
+		boolToInt(t.Force), boolToInt(t.VerifyTransfer),
 		nullString(t.TargetCategory), targetTagsJSON, pathMappingsJSON,
 		t.FilesTotal, t.FilesLinked, t.BytesTotal, t.BytesTransferred,
 		nullString(t.Error), nullTime(t.CompletedAt),
@@ -297,7 +304,7 @@ func (s *TransferStore) ListByStates(ctx context.Context, states []TransferState
 	query := `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags,
+			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -329,7 +336,7 @@ func (s *TransferStore) ListByInstance(ctx context.Context, instanceID int, limi
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags,
+			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -351,7 +358,7 @@ func (s *TransferStore) ListRecent(ctx context.Context, limit, offset int) ([]*T
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags,
+			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -426,7 +433,7 @@ func (s *TransferStore) scanTransfer(row scannable) (*Transfer, error) {
 	err := row.Scan(
 		&t.ID, &t.SourceInstanceID, &t.TargetInstanceID, &t.TorrentHash, &t.TorrentName,
 		&t.State, &sourceSavePath, &targetSavePath, &linkMode,
-		&t.DeleteFromSource, &t.PreserveCategory, &t.PreserveTags,
+		&t.DeleteFromSource, &t.PreserveCategory, &t.PreserveTags, &t.Force, &t.VerifyTransfer,
 		&targetCategory, &targetTagsJSON, &pathMappingsJSON,
 		&t.FilesTotal, &t.FilesLinked, &t.BytesTotal, &t.BytesTransferred, &errorStr,
 		&t.CreatedAt, &t.UpdatedAt, &completedAt,

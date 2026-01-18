@@ -355,7 +355,7 @@ func TestIntegration_Copy(t *testing.T) {
 
 	// Copy file
 	dstFile := filepath.Join(workdir, "copied.txt")
-	err = client.Copy(ctx, srcFile, dstFile)
+	err = client.Copy(ctx, srcFile, dstFile, false) // force=false to test normal case
 	if err != nil {
 		t.Fatalf("Copy failed: %v", err)
 	}

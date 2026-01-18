@@ -5,6 +5,7 @@ package sshclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,10 +13,17 @@ import (
 	"strings"
 )
 
+// ErrFileExists is returned when a file already exists and Force is not set.
+var ErrFileExists = errors.New("file already exists")
+
 // SFTPTransferOptions configures SFTP transfer behavior.
 type SFTPTransferOptions struct {
 	// PreservePermissions preserves file permissions during transfer.
 	PreservePermissions bool
+
+	// Force allows overwriting existing files. If false and the target exists,
+	// the transfer will fail with ErrFileExists.
+	Force bool
 
 	// BufferSize is the size of the transfer buffer (default 32KB).
 	BufferSize int
@@ -85,6 +93,13 @@ func (s *SFTPClient) Upload(ctx context.Context, localPath, remotePath string, o
 	remoteDir := filepath.Dir(remotePath)
 	if err := s.MkdirAll(remoteDir); err != nil {
 		return fmt.Errorf("create remote directory: %w", err)
+	}
+
+	// Check if file exists and Force is not set
+	if !opts.Force {
+		if _, err := s.client.Stat(remotePath); err == nil {
+			return ErrFileExists
+		}
 	}
 
 	remoteFile, err := s.client.Create(remotePath)
@@ -158,6 +173,13 @@ func (s *SFTPClient) Download(ctx context.Context, remotePath, localPath string,
 	localDir := filepath.Dir(localPath)
 	if err := os.MkdirAll(localDir, 0755); err != nil {
 		return fmt.Errorf("create local directory: %w", err)
+	}
+
+	// Check if file exists and Force is not set
+	if !opts.Force {
+		if _, err := os.Stat(localPath); err == nil {
+			return ErrFileExists
+		}
 	}
 
 	localFile, err := os.Create(localPath)
@@ -263,6 +285,7 @@ func (s *SFTPClient) UploadTree(ctx context.Context, localDir, remoteDir string,
 
 		fileOpts := SFTPTransferOptions{
 			PreservePermissions: opts.PreservePermissions,
+			Force:               opts.Force,
 			BufferSize:          opts.BufferSize,
 			OnProgress:          progressCallback,
 		}
@@ -331,6 +354,7 @@ func (s *SFTPClient) DownloadTree(ctx context.Context, remoteDir, localDir strin
 
 		fileOpts := SFTPTransferOptions{
 			PreservePermissions: opts.PreservePermissions,
+			Force:               opts.Force,
 			BufferSize:          opts.BufferSize,
 			OnProgress:          progressCallback,
 		}
@@ -387,6 +411,13 @@ func sftpRelayFile(ctx context.Context, src, dst *SFTPClient, srcPath, dstPath s
 	dstDir := filepath.Dir(dstPath)
 	if err := dst.MkdirAll(dstDir); err != nil {
 		return fmt.Errorf("create dest directory: %w", err)
+	}
+
+	// Check if file exists and Force is not set
+	if !opts.Force {
+		if _, err := dst.client.Stat(dstPath); err == nil {
+			return ErrFileExists
+		}
 	}
 
 	dstFile, err := dst.client.Create(dstPath)
@@ -484,6 +515,7 @@ func sftpRelayDir(ctx context.Context, src, dst *SFTPClient, srcDir, dstDir stri
 		fileOpts := SFTPRemoteToRemoteOptions{
 			SFTPTransferOptions: SFTPTransferOptions{
 				PreservePermissions: opts.PreservePermissions,
+				Force:               opts.Force,
 				BufferSize:          opts.BufferSize,
 				OnProgress:          progressCallback,
 			},

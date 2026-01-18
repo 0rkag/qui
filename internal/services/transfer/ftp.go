@@ -185,6 +185,7 @@ func (e *FTPExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 
 	opts := ftpclient.TransferOptions{
 		PreservePermissions: false,
+		Force:               t.Force,
 	}
 
 	switch {

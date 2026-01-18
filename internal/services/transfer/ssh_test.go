@@ -334,7 +334,7 @@ func TestSSHExecutor_determineLinkMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			executor := &SSHExecutor{}
-			result := executor.determineLinkMode(tt.source, tt.target)
+			result := executor.determineLinkMode(context.Background(), tt.source, tt.target)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

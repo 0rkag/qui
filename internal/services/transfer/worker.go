@@ -93,6 +93,20 @@ func (s *Service) processTransfer(id int64) {
 
 	case models.TransferStateLinksCreated:
 		prep := s.buildPrepareResultFromTransfer(t, sourceInstance, targetInstance)
+		if t.VerifyTransfer {
+			s.doVerify(ctx, t, executor, prep)
+		} else {
+			s.doAddTorrent(ctx, t, executor, prep)
+		}
+
+	case models.TransferStateVerifying:
+		// Recovery: re-verify and continue
+		prep := s.buildPrepareResultFromTransfer(t, sourceInstance, targetInstance)
+		if err := executor.VerifyTransfer(ctx, t, prep); err != nil {
+			_ = executor.Rollback(ctx, t, prep)
+			s.fail(ctx, t, "verification failed: "+err.Error())
+			return
+		}
 		s.doAddTorrent(ctx, t, executor, prep)
 
 	case models.TransferStateAddingTorrent:
@@ -205,6 +219,26 @@ func (s *Service) doCreateLinks(ctx context.Context, t *models.Transfer, executo
 	}
 
 	s.updateState(ctx, t, models.TransferStateLinksCreated, "")
+
+	// Continue to verification if enabled, otherwise add torrent
+	if t.VerifyTransfer {
+		s.doVerify(ctx, t, executor, prep)
+	} else {
+		s.doAddTorrent(ctx, t, executor, prep)
+	}
+}
+
+// doVerify verifies transferred files match the source
+func (s *Service) doVerify(ctx context.Context, t *models.Transfer, executor TransferExecutor, prep *PrepareResult) {
+	s.updateState(ctx, t, models.TransferStateVerifying, "")
+
+	if err := executor.VerifyTransfer(ctx, t, prep); err != nil {
+		_ = executor.Rollback(ctx, t, prep)
+		s.fail(ctx, t, fmt.Sprintf("verification failed: %v", err))
+		return
+	}
+
+	log.Info().Int64("id", t.ID).Msg("[TRANSFER] Verification passed")
 	s.doAddTorrent(ctx, t, executor, prep)
 }
 

@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/autobrr/qui/internal/models"
+	"github.com/autobrr/qui/pkg/checksum"
 	"github.com/autobrr/qui/pkg/fsutil"
 	"github.com/autobrr/qui/pkg/hardlinktree"
 	"github.com/autobrr/qui/pkg/reflinktree"
@@ -269,6 +271,115 @@ func (e *LocalExecutor) Rollback(ctx context.Context, t *models.Transfer, prep *
 	if err := hardlinktree.Rollback(plan); err != nil {
 		log.Warn().Err(err).Int64("id", t.ID).Str("mode", prep.LinkMode).Msg("[TRANSFER-LOCAL] Rollback failed")
 		return err
+	}
+
+	return nil
+}
+
+// VerifyTransfer verifies that the transferred files match the source.
+func (e *LocalExecutor) VerifyTransfer(ctx context.Context, t *models.Transfer, prep *PrepareResult) error {
+	if prep == nil {
+		return fmt.Errorf("no preparation result to verify")
+	}
+
+	// Direct mode - source and target are the same files, nothing to verify
+	if prep.LinkMode == "direct" {
+		log.Debug().Int64("id", t.ID).Msg("[TRANSFER-LOCAL] Direct mode - skipping verification")
+		return nil
+	}
+
+	log.Info().
+		Int64("id", t.ID).
+		Str("mode", prep.LinkMode).
+		Int("files", len(prep.Files)).
+		Msg("[TRANSFER-LOCAL] Starting transfer verification")
+
+	for _, f := range prep.Files {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		srcPath := f.AbsPath
+		dstPath := filepath.Join(prep.TargetSavePath, f.RelPath)
+
+		switch prep.LinkMode {
+		case "hardlink":
+			// For hardlinks, verify they share the same inode
+			if err := verifyHardlink(srcPath, dstPath); err != nil {
+				return fmt.Errorf("hardlink verification failed for %s: %w", f.RelPath, err)
+			}
+
+		case "reflink":
+			// For reflinks, verify checksums match (they're CoW copies)
+			if err := verifyChecksum(srcPath, dstPath); err != nil {
+				return fmt.Errorf("reflink verification failed for %s: %w", f.RelPath, err)
+			}
+
+		default:
+			// Unknown mode - use checksum verification
+			if err := verifyChecksum(srcPath, dstPath); err != nil {
+				return fmt.Errorf("verification failed for %s: %w", f.RelPath, err)
+			}
+		}
+	}
+
+	log.Info().
+		Int64("id", t.ID).
+		Int("files", len(prep.Files)).
+		Msg("[TRANSFER-LOCAL] Transfer verification complete")
+
+	return nil
+}
+
+// verifyHardlink checks that two paths share the same inode.
+func verifyHardlink(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("stat source: %w", err)
+	}
+
+	dstInfo, err := os.Stat(dst)
+	if err != nil {
+		return fmt.Errorf("stat destination: %w", err)
+	}
+
+	srcStat, ok := srcInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot get source inode (unsupported platform)")
+	}
+
+	dstStat, ok := dstInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot get destination inode (unsupported platform)")
+	}
+
+	if srcStat.Ino != dstStat.Ino {
+		return fmt.Errorf("inode mismatch: source=%d, destination=%d", srcStat.Ino, dstStat.Ino)
+	}
+
+	return nil
+}
+
+// verifyChecksum computes and compares SHA256 checksums of two files.
+func verifyChecksum(src, dst string) error {
+	// Quick size check first
+	match, err := checksum.FileSizeMatch(src, dst)
+	if err != nil {
+		return fmt.Errorf("size check failed: %w", err)
+	}
+	if !match {
+		return fmt.Errorf("file size mismatch")
+	}
+
+	// Full checksum comparison
+	equal, err := checksum.CompareFiles(src, dst, checksum.AlgorithmSHA256)
+	if err != nil {
+		return fmt.Errorf("checksum comparison failed: %w", err)
+	}
+	if !equal {
+		return fmt.Errorf("checksum mismatch")
 	}
 
 	return nil

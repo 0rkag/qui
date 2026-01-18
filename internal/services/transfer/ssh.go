@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/autobrr/qui/internal/models"
+	"github.com/autobrr/qui/pkg/checksum"
 	"github.com/autobrr/qui/pkg/sshclient"
 )
 
@@ -82,7 +83,7 @@ func (e *SSHExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepare
 	)
 
 	// 3. Determine link mode for remote transfers
-	linkMode := e.determineLinkMode(common.SourceInstance, common.TargetInstance)
+	linkMode := e.determineLinkMode(ctx, common.SourceInstance, common.TargetInstance)
 
 	// 4. Export torrent for later use
 	torrentBytes, _, _, err := e.syncManager.ExportTorrent(ctx, t.SourceInstanceID, t.TorrentHash)
@@ -224,6 +225,124 @@ func (e *SSHExecutor) Rollback(ctx context.Context, t *models.Transfer, prep *Pr
 		if err := client.Remove(ctx, targetPath); err != nil {
 			log.Warn().Err(err).Str("path", targetPath).Msg("[TRANSFER-SSH] Failed to remove file during rollback")
 		}
+	}
+
+	return nil
+}
+
+// VerifyTransfer verifies that transferred files match the source using checksums.
+func (e *SSHExecutor) VerifyTransfer(ctx context.Context, t *models.Transfer, prep *PrepareResult) error {
+	if prep == nil {
+		return fmt.Errorf("no preparation result to verify")
+	}
+
+	// Direct mode - source and target are the same files, nothing to verify
+	if prep.LinkMode == "direct" {
+		log.Debug().Int64("id", t.ID).Msg("[TRANSFER-SSH] Direct mode - skipping verification")
+		return nil
+	}
+
+	log.Info().
+		Int64("id", t.ID).
+		Str("mode", prep.LinkMode).
+		Int("files", len(prep.Files)).
+		Msg("[TRANSFER-SSH] Starting transfer verification")
+
+	// Get SSH connections for source and target
+	sourceSSH, _ := e.connectionStore.GetSSHByInstance(ctx, t.SourceInstanceID)
+	targetSSH, _ := e.connectionStore.GetSSHByInstance(ctx, t.TargetInstanceID)
+
+	sourceHasLocal := prep.SourceInstance.HasLocalFilesystemAccess
+	targetHasLocal := prep.TargetInstance.HasLocalFilesystemAccess
+
+	for _, f := range prep.Files {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		srcPath := f.AbsPath
+		dstPath := filepath.Join(prep.TargetSavePath, f.RelPath)
+
+		// For hardlinks on the same host, verify inodes match
+		if prep.LinkMode == "hardlink" && sourceSSH != nil && targetSSH != nil &&
+			sourceSSH.Host == targetSSH.Host {
+			client, err := e.getSSHClient(sourceSSH)
+			if err != nil {
+				return fmt.Errorf("get SSH client: %w", err)
+			}
+			if err := e.verifyRemoteHardlink(ctx, client, srcPath, dstPath); err != nil {
+				return fmt.Errorf("hardlink verification failed for %s: %w", f.RelPath, err)
+			}
+			continue
+		}
+
+		// For other modes, compare checksums
+		srcChecksum, err := e.getFileChecksum(ctx, srcPath, sourceSSH, sourceHasLocal)
+		if err != nil {
+			return fmt.Errorf("get source checksum for %s: %w", f.RelPath, err)
+		}
+
+		dstChecksum, err := e.getFileChecksum(ctx, dstPath, targetSSH, targetHasLocal)
+		if err != nil {
+			return fmt.Errorf("get target checksum for %s: %w", f.RelPath, err)
+		}
+
+		if srcChecksum != dstChecksum {
+			return fmt.Errorf("checksum mismatch for %s: source=%s, target=%s", f.RelPath, srcChecksum, dstChecksum)
+		}
+	}
+
+	log.Info().
+		Int64("id", t.ID).
+		Int("files", len(prep.Files)).
+		Msg("[TRANSFER-SSH] Transfer verification complete")
+
+	return nil
+}
+
+// getFileChecksum gets the checksum of a file, either locally or via SSH.
+func (e *SSHExecutor) getFileChecksum(ctx context.Context, path string, sshConn *models.InstanceConnection, hasLocal bool) (string, error) {
+	if hasLocal {
+		return checksum.FileChecksum(path, checksum.AlgorithmSHA256)
+	}
+
+	if sshConn == nil {
+		return "", fmt.Errorf("no SSH connection and no local access")
+	}
+
+	client, err := e.getSSHClient(sshConn)
+	if err != nil {
+		return "", err
+	}
+
+	return client.FileChecksum(ctx, path, checksum.AlgorithmSHA256)
+}
+
+// verifyRemoteHardlink verifies that two remote paths share the same inode.
+func (e *SSHExecutor) verifyRemoteHardlink(ctx context.Context, client *sshclient.Client, src, dst string) error {
+	// Use stat to get inode numbers
+	cmd := fmt.Sprintf("stat -c %%i %s %s 2>/dev/null || stat -f %%i %s %s",
+		sshclient.ShellQuote(src), sshclient.ShellQuote(dst),
+		sshclient.ShellQuote(src), sshclient.ShellQuote(dst))
+
+	result, err := client.Exec(ctx, cmd)
+	if err != nil {
+		return fmt.Errorf("stat command failed: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("stat command failed: %s", result.Stderr)
+	}
+
+	// Parse the two inode numbers
+	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
+	if len(lines) != 2 {
+		return fmt.Errorf("unexpected stat output: %s", result.Stdout)
+	}
+
+	if lines[0] != lines[1] {
+		return fmt.Errorf("inode mismatch: source=%s, destination=%s", lines[0], lines[1])
 	}
 
 	return nil
@@ -392,6 +511,7 @@ func (e *SSHExecutor) transferFilesSFTP(ctx context.Context, t *models.Transfer,
 
 	opts := sshclient.SFTPTransferOptions{
 		PreservePermissions: true,
+		Force:               t.Force,
 	}
 
 	switch {
@@ -524,7 +644,7 @@ func (e *SSHExecutor) createRemoteLinks(ctx context.Context, t *models.Transfer,
 				return linked, fmt.Errorf("failed to hardlink %s: %w", f.RelPath, err)
 			}
 		case "reflink":
-			if err := client.Reflink(ctx, srcPath, dstPath); err != nil {
+			if err := client.Reflink(ctx, srcPath, dstPath, t.Force); err != nil {
 				return linked, fmt.Errorf("failed to reflink %s: %w", f.RelPath, err)
 			}
 		}
@@ -563,7 +683,7 @@ func (e *SSHExecutor) copyRemoteFiles(ctx context.Context, t *models.Transfer, p
 			return copied, fmt.Errorf("failed to create directory %s: %w", dstDir, err)
 		}
 
-		if err := client.Copy(ctx, srcPath, dstPath); err != nil {
+		if err := client.Copy(ctx, srcPath, dstPath, t.Force); err != nil {
 			return copied, fmt.Errorf("failed to copy %s: %w", f.RelPath, err)
 		}
 		copied++
@@ -604,27 +724,45 @@ func (e *SSHExecutor) sshConfigFromConnection(conn *models.InstanceConnection) *
 // determineLinkMode decides how files should be handled for SSH transfers.
 // Returns: "transfer" if files need to be moved between machines,
 // "hardlink"/"reflink"/"copy"/"direct" for same-machine operations.
-func (e *SSHExecutor) determineLinkMode(source, target *models.Instance) string {
+func (e *SSHExecutor) determineLinkMode(ctx context.Context, source, target *models.Instance) string {
 	sourceLocal := source.HasLocalFilesystemAccess
 	targetLocal := target.HasLocalFilesystemAccess
 
-	// If either side lacks local filesystem access, we need to transfer
-	if !sourceLocal || !targetLocal {
-		return "transfer"
+	// If both have local access, use link mode based on target settings
+	if sourceLocal && targetLocal {
+		if target.UseHardlinks {
+			return "hardlink"
+		}
+		if target.UseReflinks {
+			return "reflink"
+		}
+		if target.FallbackToRegularMode {
+			return "copy"
+		}
+		return "direct"
 	}
 
-	// Both have local access - use link mode based on target settings
-	if target.UseHardlinks {
-		return "hardlink"
-	}
-	if target.UseReflinks {
-		return "reflink"
-	}
-	if target.FallbackToRegularMode {
-		return "copy"
+	// Check if both instances have SSH to the same host (same machine scenario)
+	if e.connectionStore != nil {
+		sourceSSH, _ := e.connectionStore.GetSSHByInstance(ctx, source.ID)
+		targetSSH, _ := e.connectionStore.GetSSHByInstance(ctx, target.ID)
+
+		if sourceSSH != nil && targetSSH != nil && sourceSSH.Host == targetSSH.Host {
+			// Same host via SSH - can use linking based on target settings
+			if target.UseHardlinks {
+				return "hardlink"
+			}
+			if target.UseReflinks {
+				return "reflink"
+			}
+			if target.FallbackToRegularMode {
+				return "copy"
+			}
+		}
 	}
 
-	return "direct"
+	// Different machines or no SSH configured - need to transfer
+	return "transfer"
 }
 
 // Close shuts down the SSH connection pool.

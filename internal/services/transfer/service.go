@@ -150,6 +150,8 @@ func (s *Service) QueueTransfer(ctx context.Context, req *TransferRequest) (*mod
 		DeleteFromSource: req.DeleteFromSource,
 		PreserveCategory: req.PreserveCategory,
 		PreserveTags:     req.PreserveTags,
+		Force:            req.Force,
+		VerifyTransfer:   req.VerifyTransfer,
 		PathMappings:     req.PathMappings,
 	}
 
@@ -174,6 +176,8 @@ func (s *Service) MoveTorrent(ctx context.Context, req *MoveRequest) (*models.Tr
 		DeleteFromSource: req.DeleteFromSource,
 		PreserveCategory: req.PreserveCategory,
 		PreserveTags:     req.PreserveTags,
+		Force:            req.Force,
+		VerifyTransfer:   req.VerifyTransfer,
 	})
 }
 

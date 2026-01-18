@@ -302,6 +302,12 @@ func (e *TestEnv) waitForContainers(ctx context.Context) error {
 		if err := e.verifyQBitLogin(ctx, inst); err != nil {
 			return fmt.Errorf("verify login for %s: %w", inst.Name, err)
 		}
+
+		// Configure qBittorrent to have minimal ban duration (1 second)
+		// This prevents IP bans during error handling tests
+		if err := e.configureQBitBanDuration(ctx, inst); err != nil {
+			return fmt.Errorf("configure ban duration for %s: %w", inst.Name, err)
+		}
 	}
 
 	return nil
@@ -324,6 +330,48 @@ func (e *TestEnv) verifyQBitLogin(ctx context.Context, inst *QBitInstance) error
 	if string(respBody) != "Ok." {
 		return fmt.Errorf("login failed: %s", respBody)
 	}
+	return nil
+}
+
+func (e *TestEnv) configureQBitBanDuration(ctx context.Context, inst *QBitInstance) error {
+	// Set WebUI ban duration to 1 second via qBittorrent API
+	// This prevents IP bans from affecting subsequent tests
+
+	// Create a client with cookie jar for session
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+
+	// Login first
+	loginURL := fmt.Sprintf("http://127.0.0.1:%d/api/v2/auth/login", inst.Port)
+	loginBody := fmt.Sprintf("username=admin&password=%s", inst.Password)
+	loginReq, _ := http.NewRequestWithContext(ctx, "POST", loginURL, strings.NewReader(loginBody))
+	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	loginResp, err := client.Do(loginReq)
+	if err != nil {
+		return fmt.Errorf("login failed: %w", err)
+	}
+	loginResp.Body.Close()
+
+	// Set preferences
+	prefURL := fmt.Sprintf("http://127.0.0.1:%d/api/v2/app/setPreferences", inst.Port)
+	prefBody := `json={"web_ui_ban_duration":1}`
+
+	prefReq, _ := http.NewRequestWithContext(ctx, "POST", prefURL, strings.NewReader(prefBody))
+	prefReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	prefResp, err := client.Do(prefReq)
+	if err != nil {
+		return err
+	}
+	defer prefResp.Body.Close()
+
+	if prefResp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(prefResp.Body)
+		return fmt.Errorf("failed to set preferences: %s (status %d)", respBody, prefResp.StatusCode)
+	}
+
+	log.Info().Str("instance", inst.Name).Msg("Configured minimal ban duration")
 	return nil
 }
 
@@ -492,15 +540,33 @@ func (e *TestEnv) configureQUI(ctx context.Context) error {
 		}
 		inst.ID = id
 
+		// Create path mappings
+		// /downloads - each instance has its own volume, use instance-specific canonical path
+		if err := e.quiCreatePathMappingWithCanonical(ctx, inst.ID, "/downloads", fmt.Sprintf("/e2e/%s/downloads", inst.Name)); err != nil {
+			return fmt.Errorf("create /downloads path mapping for %s: %w", inst.Name, err)
+		}
+
+		// /shared - qbit1 and qbit2 share this volume, use common canonical path
+		// qbit3 has its own shared volume (different canonical path)
+		sharedCanonical := "/e2e/shared"
+		if inst.Name == "qbit3" {
+			sharedCanonical = "/e2e/qbit3/shared"
+		}
+		if err := e.quiCreatePathMappingWithCanonical(ctx, inst.ID, "/shared", sharedCanonical); err != nil {
+			return fmt.Errorf("create /shared path mapping for %s: %w", inst.Name, err)
+		}
+
 		// Create SSH connection
 		if err := e.quiCreateSSHConnection(ctx, inst); err != nil {
 			return fmt.Errorf("create SSH connection for %s: %w", inst.Name, err)
 		}
 
-		// Create path mappings
-		for _, path := range []string{"/downloads", "/shared"} {
-			if err := e.quiCreatePathMapping(ctx, inst.ID, path); err != nil {
-				return fmt.Errorf("create path mapping for %s: %w", inst.Name, err)
+		// Enable hardlinks for qbit1 and qbit2 (they share the /shared volume)
+		if inst.Name == "qbit1" || inst.Name == "qbit2" {
+			if err := e.quiUpdateInstance(ctx, inst.ID, map[string]interface{}{
+				"useHardlinks": true,
+			}); err != nil {
+				return fmt.Errorf("enable hardlinks for %s: %w", inst.Name, err)
 			}
 		}
 
@@ -562,7 +628,7 @@ func (e *TestEnv) quiCreateInstance(ctx context.Context, inst *QBitInstance) (in
 
 func (e *TestEnv) quiCreateSSHConnection(ctx context.Context, inst *QBitInstance) error {
 	body := fmt.Sprintf(`{
-		"protocol": "ssh",
+		"type": "ssh_auto",
 		"host": "127.0.0.1",
 		"port": %d,
 		"username": "root",
@@ -587,11 +653,15 @@ func (e *TestEnv) quiCreateSSHConnection(ctx context.Context, inst *QBitInstance
 }
 
 func (e *TestEnv) quiCreatePathMapping(ctx context.Context, instanceID int, path string) error {
+	return e.quiCreatePathMappingWithCanonical(ctx, instanceID, path, path)
+}
+
+func (e *TestEnv) quiCreatePathMappingWithCanonical(ctx context.Context, instanceID int, instancePath, canonicalPath string) error {
 	body := fmt.Sprintf(`{
 		"instancePath": "%s",
 		"canonicalPath": "%s",
 		"enabled": true
-	}`, path, path)
+	}`, instancePath, canonicalPath)
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/instances/%d/path-mappings", e.QUIURL, instanceID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -605,6 +675,28 @@ func (e *TestEnv) quiCreatePathMapping(ctx context.Context, instanceID int, path
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("create path mapping failed: %s", body)
+	}
+	return nil
+}
+
+func (e *TestEnv) quiUpdateInstance(ctx context.Context, instanceID int, updates map[string]interface{}) error {
+	body, err := json.Marshal(updates)
+	if err != nil {
+		return err
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, "PATCH", fmt.Sprintf("%s/api/instances/%d", e.QUIURL, instanceID), bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := e.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("update instance failed: %s", respBody)
 	}
 	return nil
 }

@@ -175,13 +175,14 @@ func (m *mockInstanceProvider) AddInstance(inst *models.Instance) {
 
 // mockExecutor implements TransferExecutor for worker tests
 type mockExecutor struct {
-	canHandleResult bool
-	canHandleFunc   func(source, target *models.Instance) bool
-	prepareFunc     func(ctx context.Context, t *models.Transfer) (*PrepareResult, error)
-	createLinksFunc func(ctx context.Context, t *models.Transfer, prep *PrepareResult) (int, error)
-	addTorrentFunc  func(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
-	deleteSourceFunc func(ctx context.Context, t *models.Transfer) error
-	rollbackFunc    func(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
+	canHandleResult    bool
+	canHandleFunc      func(source, target *models.Instance) bool
+	prepareFunc        func(ctx context.Context, t *models.Transfer) (*PrepareResult, error)
+	createLinksFunc    func(ctx context.Context, t *models.Transfer, prep *PrepareResult) (int, error)
+	addTorrentFunc     func(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
+	deleteSourceFunc   func(ctx context.Context, t *models.Transfer) error
+	rollbackFunc       func(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
+	verifyTransferFunc func(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
 
 	// Call tracking
 	mu             sync.Mutex
@@ -190,6 +191,7 @@ type mockExecutor struct {
 	addCalls       int
 	deleteCalls    int
 	rollbackCalls  int
+	verifyCalls    int
 }
 
 func newMockExecutor() *mockExecutor {
@@ -256,6 +258,17 @@ func (m *mockExecutor) Rollback(ctx context.Context, t *models.Transfer, prep *P
 
 	if m.rollbackFunc != nil {
 		return m.rollbackFunc(ctx, t, prep)
+	}
+	return nil
+}
+
+func (m *mockExecutor) VerifyTransfer(ctx context.Context, t *models.Transfer, prep *PrepareResult) error {
+	m.mu.Lock()
+	m.verifyCalls++
+	m.mu.Unlock()
+
+	if m.verifyTransferFunc != nil {
+		return m.verifyTransferFunc(ctx, t, prep)
 	}
 	return nil
 }

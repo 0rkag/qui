@@ -5,6 +5,7 @@ package ftpclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,10 +15,17 @@ import (
 	"github.com/jlaffaye/ftp"
 )
 
+// ErrFileExists is returned when a file already exists and Force is not set.
+var ErrFileExists = errors.New("file already exists")
+
 // TransferOptions configures FTP transfer behavior.
 type TransferOptions struct {
 	// PreservePermissions attempts to preserve file permissions (limited on FTP).
 	PreservePermissions bool
+
+	// Force allows overwriting existing files. If false and the target exists,
+	// the transfer will fail with ErrFileExists.
+	Force bool
 
 	// OnProgress is called periodically with transfer progress.
 	OnProgress func(bytesTransferred, bytesTotal int64)
@@ -80,6 +88,17 @@ func (c *Client) Upload(ctx context.Context, localPath, remotePath string, opts 
 		return fmt.Errorf("create remote directory: %w", err)
 	}
 
+	// Check if file exists and Force is not set
+	if !opts.Force {
+		exists, err := c.Exists(remotePath)
+		if err != nil {
+			return fmt.Errorf("check destination exists: %w", err)
+		}
+		if exists {
+			return ErrFileExists
+		}
+	}
+
 	var reader io.Reader = localFile
 	if opts.OnProgress != nil {
 		reader = &progressReader{
@@ -122,6 +141,13 @@ func (c *Client) Download(ctx context.Context, remotePath, localPath string, opt
 	localDir := filepath.Dir(localPath)
 	if err := os.MkdirAll(localDir, 0755); err != nil {
 		return fmt.Errorf("create local directory: %w", err)
+	}
+
+	// Check if file exists and Force is not set
+	if !opts.Force {
+		if _, err := os.Stat(localPath); err == nil {
+			return ErrFileExists
+		}
 	}
 
 	// Check for context cancellation
@@ -221,6 +247,7 @@ func (c *Client) UploadTree(ctx context.Context, localDir, remoteDir string, opt
 
 		fileOpts := TransferOptions{
 			PreservePermissions: opts.PreservePermissions,
+			Force:               opts.Force,
 			OnProgress:          progressCallback,
 		}
 
@@ -288,6 +315,7 @@ func (c *Client) DownloadTree(ctx context.Context, remoteDir, localDir string, o
 
 		fileOpts := TransferOptions{
 			PreservePermissions: opts.PreservePermissions,
+			Force:               opts.Force,
 			OnProgress:          progressCallback,
 		}
 
@@ -330,6 +358,17 @@ func relayFile(ctx context.Context, src, dst *Client, srcPath, dstPath string, s
 	dstDir := path.Dir(dstPath)
 	if err := dst.MkdirAll(dstDir); err != nil {
 		return fmt.Errorf("create dest directory: %w", err)
+	}
+
+	// Check if file exists and Force is not set
+	if !opts.Force {
+		exists, err := dst.Exists(dstPath)
+		if err != nil {
+			return fmt.Errorf("check destination exists: %w", err)
+		}
+		if exists {
+			return ErrFileExists
+		}
 	}
 
 	// Open source file
@@ -412,6 +451,7 @@ func relayDir(ctx context.Context, src, dst *Client, srcDir, dstDir string, opts
 
 		fileOpts := TransferOptions{
 			PreservePermissions: opts.PreservePermissions,
+			Force:               opts.Force,
 			OnProgress:          progressCallback,
 		}
 

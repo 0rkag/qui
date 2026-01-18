@@ -43,6 +43,12 @@ type TransferExecutor interface {
 	// This is called when a transfer fails after links were created.
 	Rollback(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
 
+	// VerifyTransfer verifies that the transferred files match the source.
+	// For hardlinks, this verifies inodes match (same data).
+	// For copies/transfers, this computes and compares checksums.
+	// Returns nil if verification passes, or an error describing the mismatch.
+	VerifyTransfer(ctx context.Context, t *models.Transfer, prep *PrepareResult) error
+
 	// CanHandle returns true if this executor can handle the given transfer.
 	// Used for executor selection based on instance configuration.
 	CanHandle(source, target *models.Instance) bool

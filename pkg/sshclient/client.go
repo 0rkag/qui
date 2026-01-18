@@ -335,13 +335,26 @@ func (c *Client) Hardlink(ctx context.Context, src, dst string) error {
 }
 
 // Reflink creates a reflink (copy-on-write) from src to dst on the remote host.
-func (c *Client) Reflink(ctx context.Context, src, dst string) error {
+// If force is false and dst already exists, returns ErrFileExists.
+func (c *Client) Reflink(ctx context.Context, src, dst string, force bool) error {
 	if err := ValidatePath(src); err != nil {
 		return fmt.Errorf("invalid source path: %w", err)
 	}
 	if err := ValidatePath(dst); err != nil {
 		return fmt.Errorf("invalid destination path: %w", err)
 	}
+
+	// Check if destination exists and force is not set
+	if !force {
+		exists, err := c.Exists(ctx, dst)
+		if err != nil {
+			return fmt.Errorf("check destination exists: %w", err)
+		}
+		if exists {
+			return ErrFileExists
+		}
+	}
+
 	// Try cp --reflink=always first (Linux), fall back to cp -c (macOS)
 	result, err := c.Exec(ctx, fmt.Sprintf("cp --reflink=always %s %s 2>/dev/null || cp -c %s %s", ShellQuote(src), ShellQuote(dst), ShellQuote(src), ShellQuote(dst)))
 	if err != nil {
@@ -354,13 +367,26 @@ func (c *Client) Reflink(ctx context.Context, src, dst string) error {
 }
 
 // Copy copies a file from src to dst on the remote host.
-func (c *Client) Copy(ctx context.Context, src, dst string) error {
+// If force is false and dst already exists, returns ErrFileExists.
+func (c *Client) Copy(ctx context.Context, src, dst string, force bool) error {
 	if err := ValidatePath(src); err != nil {
 		return fmt.Errorf("invalid source path: %w", err)
 	}
 	if err := ValidatePath(dst); err != nil {
 		return fmt.Errorf("invalid destination path: %w", err)
 	}
+
+	// Check if destination exists and force is not set
+	if !force {
+		exists, err := c.Exists(ctx, dst)
+		if err != nil {
+			return fmt.Errorf("check destination exists: %w", err)
+		}
+		if exists {
+			return ErrFileExists
+		}
+	}
+
 	_, err := c.ExecSimple(ctx, fmt.Sprintf("cp %s %s", ShellQuote(src), ShellQuote(dst)))
 	return err
 }
