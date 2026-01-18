@@ -323,8 +323,63 @@ func (e *SSHExecutor) getSSHClient(conn *models.InstanceConnection) (*sshclient.
 	return e.sshPool.Get(cfg)
 }
 
-// transferFiles transfers files via rsync.
+// resolveTransferMethod determines whether to use rsync or SFTP for a transfer.
+func (e *SSHExecutor) resolveTransferMethod(sourceSSH, targetSSH *models.InstanceConnection) string {
+	// Check user preference from the connection that will be used for transfer
+	conn := targetSSH
+	if conn == nil {
+		conn = sourceSSH
+	}
+	if conn == nil {
+		return models.TransferMethodSFTP // Fallback to SFTP if no connection
+	}
+
+	// Explicit user preference takes priority
+	switch conn.TransferMethod {
+	case models.TransferMethodRsync:
+		return models.TransferMethodRsync
+	case models.TransferMethodSFTP:
+		return models.TransferMethodSFTP
+	}
+
+	// Auto-detect: prefer rsync if available
+	if conn.RsyncAvailable != nil && *conn.RsyncAvailable {
+		return models.TransferMethodRsync
+	}
+
+	// Default to SFTP (always available with SSH)
+	return models.TransferMethodSFTP
+}
+
+// transferFiles transfers files via rsync or SFTP based on capabilities.
 func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, prep *PrepareResult, sourceSSH, targetSSH *models.InstanceConnection) (int, error) {
+	method := e.resolveTransferMethod(sourceSSH, targetSSH)
+
+	log.Debug().
+		Int64("id", t.ID).
+		Str("method", method).
+		Msg("[TRANSFER-SSH] Using transfer method")
+
+	switch method {
+	case models.TransferMethodRsync:
+		count, err := e.transferFilesRsync(ctx, t, prep, sourceSSH, targetSSH)
+		if err != nil {
+			// If rsync fails, try SFTP as fallback
+			log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER-SSH] Rsync failed, falling back to SFTP")
+			return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
+		}
+		return count, nil
+
+	case models.TransferMethodSFTP:
+		return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
+
+	default:
+		return 0, fmt.Errorf("unsupported transfer method: %s", method)
+	}
+}
+
+// transferFilesRsync transfers files via rsync.
+func (e *SSHExecutor) transferFilesRsync(ctx context.Context, t *models.Transfer, prep *PrepareResult, sourceSSH, targetSSH *models.InstanceConnection) (int, error) {
 	// Determine rsync direction based on which side has SSH
 	sourceHasLocal := prep.SourceInstance.HasLocalFilesystemAccess
 	targetHasLocal := prep.TargetInstance.HasLocalFilesystemAccess
@@ -384,6 +439,125 @@ func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 		Msg("[TRANSFER-SSH] Files transferred via rsync")
 
 	return len(prep.Files), nil
+}
+
+// transferFilesSFTP transfers files via SFTP.
+func (e *SSHExecutor) transferFilesSFTP(ctx context.Context, t *models.Transfer, prep *PrepareResult, sourceSSH, targetSSH *models.InstanceConnection) (int, error) {
+	sourceHasLocal := prep.SourceInstance.HasLocalFilesystemAccess
+	targetHasLocal := prep.TargetInstance.HasLocalFilesystemAccess
+
+	// Build source path
+	sourcePath := filepath.Join(prep.SourceSavePath, prep.TorrentName)
+	if len(prep.Files) == 1 && prep.Files[0].RelPath == prep.TorrentName {
+		sourcePath = prep.Files[0].AbsPath
+	}
+
+	targetDir := prep.TargetSavePath
+	targetPath := filepath.Join(targetDir, prep.TorrentName)
+
+	opts := sshclient.SFTPTransferOptions{
+		PreservePermissions: true,
+	}
+
+	switch {
+	case sourceHasLocal && targetSSH != nil:
+		// Upload from local to remote
+		sftpClient, err := e.getSFTPClient(targetSSH)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create SFTP client: %w", err)
+		}
+		defer sftpClient.Close()
+
+		// Check if source is a directory or file
+		info, err := os.Stat(sourcePath)
+		if err != nil {
+			return 0, fmt.Errorf("failed to stat source: %w", err)
+		}
+
+		if info.IsDir() {
+			if err := sftpClient.UploadTree(ctx, sourcePath, targetPath, opts); err != nil {
+				return 0, fmt.Errorf("SFTP upload tree failed: %w", err)
+			}
+		} else {
+			if err := sftpClient.Upload(ctx, sourcePath, targetPath, opts); err != nil {
+				return 0, fmt.Errorf("SFTP upload failed: %w", err)
+			}
+		}
+
+	case targetHasLocal && sourceSSH != nil:
+		// Download from remote to local
+		sftpClient, err := e.getSFTPClient(sourceSSH)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create SFTP client: %w", err)
+		}
+		defer sftpClient.Close()
+
+		// Check if source is a directory or file
+		isDir, err := sftpClient.IsDir(sourcePath)
+		if err != nil {
+			return 0, fmt.Errorf("failed to check source: %w", err)
+		}
+
+		if isDir {
+			if err := sftpClient.DownloadTree(ctx, sourcePath, targetPath, opts); err != nil {
+				return 0, fmt.Errorf("SFTP download tree failed: %w", err)
+			}
+		} else {
+			if err := sftpClient.Download(ctx, sourcePath, targetPath, opts); err != nil {
+				return 0, fmt.Errorf("SFTP download failed: %w", err)
+			}
+		}
+
+	case sourceSSH != nil && targetSSH != nil:
+		// Remote to remote - relay through QUI
+		srcClient, err := e.getSFTPClient(sourceSSH)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create source SFTP client: %w", err)
+		}
+		defer srcClient.Close()
+
+		dstClient, err := e.getSFTPClient(targetSSH)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create target SFTP client: %w", err)
+		}
+		defer dstClient.Close()
+
+		relayOpts := sshclient.SFTPRemoteToRemoteOptions{
+			SFTPTransferOptions: opts,
+			UseRelay:            true,
+		}
+
+		if err := sshclient.SFTPRelayTransfer(ctx, srcClient, dstClient, sourcePath, targetPath, relayOpts); err != nil {
+			return 0, fmt.Errorf("SFTP relay transfer failed: %w", err)
+		}
+
+	default:
+		return 0, fmt.Errorf("cannot determine SFTP direction")
+	}
+
+	log.Info().
+		Int64("id", t.ID).
+		Int("files", len(prep.Files)).
+		Str("targetDir", targetDir).
+		Msg("[TRANSFER-SSH] Files transferred via SFTP")
+
+	return len(prep.Files), nil
+}
+
+// getSFTPClient creates an SFTP client from a connection.
+func (e *SSHExecutor) getSFTPClient(conn *models.InstanceConnection) (*sshclient.SFTPClient, error) {
+	if conn == nil || !conn.Enabled {
+		return nil, fmt.Errorf("SSH connection not configured or disabled")
+	}
+
+	cfg := &sshclient.Config{
+		Host:           conn.Host,
+		Port:           conn.Port,
+		Username:       conn.Username,
+		PrivateKeyPath: conn.PrivateKeyPath,
+	}
+
+	return sshclient.NewSFTPClientFromConfig(cfg)
 }
 
 // createRemoteLinks creates hardlinks or reflinks on a remote machine via SSH.

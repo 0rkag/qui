@@ -84,9 +84,10 @@ type TestConnectionPayload struct {
 
 // SSHTestResult is the response for SSH connection testing.
 type SSHTestResult struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Details string `json:"details,omitempty"`
+	Success      bool                  `json:"success"`
+	Message      string                `json:"message"`
+	Details      string                `json:"details,omitempty"`
+	Capabilities *sshclient.Capabilities `json:"capabilities,omitempty"`
 }
 
 // List handles GET /api/instances/{instanceID}/connections
@@ -400,9 +401,30 @@ func (h *InstanceConnectionsHandler) Test(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Detect capabilities
+	caps, err := client.CheckCapabilities(ctx)
+	if err != nil {
+		log.Warn().Err(err).Str("host", payload.Host).Msg("connections: failed to check capabilities")
+		// Connection works, just couldn't detect capabilities
+		RespondJSON(w, http.StatusOK, SSHTestResult{
+			Success: true,
+			Message: "Connection successful (capability detection failed)",
+		})
+		return
+	}
+
+	// Build detailed message
+	message := "Connection successful"
+	if caps.RsyncAvailable {
+		message += " • rsync available"
+	} else {
+		message += " • rsync not found (will use SFTP)"
+	}
+
 	RespondJSON(w, http.StatusOK, SSHTestResult{
-		Success: true,
-		Message: "Connection successful",
+		Success:      true,
+		Message:      message,
+		Capabilities: caps,
 	})
 }
 
@@ -478,8 +500,41 @@ func (h *InstanceConnectionsHandler) TestExisting(w http.ResponseWriter, r *http
 		return
 	}
 
+	// Detect capabilities
+	caps, err := client.CheckCapabilities(ctx)
+	if err != nil {
+		log.Warn().Err(err).Str("host", conn.Host).Int64("connID", id).Msg("connections: failed to check capabilities")
+		RespondJSON(w, http.StatusOK, SSHTestResult{
+			Success: true,
+			Message: "Connection successful (capability detection failed)",
+		})
+		return
+	}
+
+	// Save capabilities to database
+	dbCaps := &models.ConnectionCapabilities{
+		RsyncAvailable:     caps.RsyncAvailable,
+		RsyncVersion:       caps.RsyncVersion,
+		SFTPAvailable:      caps.SFTPAvailable,
+		HardlinksSupported: caps.HardlinksSupported,
+		ReflinksSupported:  caps.ReflinksSupported,
+	}
+	if err := h.store.UpdateCapabilities(ctx, id, dbCaps); err != nil {
+		log.Warn().Err(err).Int64("connID", id).Msg("connections: failed to save capabilities")
+		// Don't fail the test, just log
+	}
+
+	// Build detailed message
+	message := "Connection successful"
+	if caps.RsyncAvailable {
+		message += " • rsync available"
+	} else {
+		message += " • rsync not found (will use SFTP)"
+	}
+
 	RespondJSON(w, http.StatusOK, SSHTestResult{
-		Success: true,
-		Message: "Connection successful",
+		Success:      true,
+		Message:      message,
+		Capabilities: caps,
 	})
 }

@@ -46,6 +46,13 @@ var (
 	ErrInvalidConnectionConfig = errors.New("invalid connection configuration")
 )
 
+// Transfer method constants
+const (
+	TransferMethodAuto  = "auto"  // Auto-detect: prefer rsync, fallback to sftp
+	TransferMethodRsync = "rsync" // Force rsync (fails if not available)
+	TransferMethodSFTP  = "sftp"  // Force SFTP
+)
+
 // InstanceConnection represents a connection configuration for remote access to an instance.
 type InstanceConnection struct {
 	ID             int64     `json:"id"`
@@ -58,6 +65,17 @@ type InstanceConnection struct {
 	Enabled        bool      `json:"enabled"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
+
+	// Detected capabilities (cached from connection test)
+	RsyncAvailable      *bool      `json:"rsyncAvailable,omitempty"`
+	RsyncVersion        string     `json:"rsyncVersion,omitempty"`
+	SFTPAvailable       *bool      `json:"sftpAvailable,omitempty"`
+	HardlinksSupported  *bool      `json:"hardlinksSupported,omitempty"`
+	ReflinksSupported   *bool      `json:"reflinksSupported,omitempty"`
+	CapabilitiesChecked *time.Time `json:"capabilitiesCheckedAt,omitempty"`
+
+	// User preference for transfer method
+	TransferMethod string `json:"transferMethod,omitempty"` // "auto", "rsync", "sftp"
 }
 
 // Validate checks that the connection has valid data.
@@ -163,12 +181,19 @@ func (s *InstanceConnectionStore) Create(ctx context.Context, c *InstanceConnect
 		return nil, err
 	}
 
+	// Set default transfer method
+	if c.TransferMethod == "" {
+		c.TransferMethod = TransferMethodAuto
+	}
+
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO instance_connections (
-			instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.InstanceID, c.Protocol, c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled, now, now,
+			instance_id, protocol, host, port, username, private_key_path, enabled,
+			transfer_method, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.InstanceID, c.Protocol, c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled,
+		c.TransferMethod, now, now,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -191,7 +216,9 @@ func (s *InstanceConnectionStore) Create(ctx context.Context, c *InstanceConnect
 // Get retrieves a connection by ID.
 func (s *InstanceConnectionStore) Get(ctx context.Context, id int64) (*InstanceConnection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
+		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
+			capabilities_checked_at, transfer_method, created_at, updated_at
 		FROM instance_connections
 		WHERE id = ?`, id)
 
@@ -201,7 +228,9 @@ func (s *InstanceConnectionStore) Get(ctx context.Context, id int64) (*InstanceC
 // GetByInstanceAndProtocol retrieves a connection for a specific instance and protocol.
 func (s *InstanceConnectionStore) GetByInstanceAndProtocol(ctx context.Context, instanceID int, protocol string) (*InstanceConnection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
+		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
+			capabilities_checked_at, transfer_method, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ? AND protocol = ?`, instanceID, protocol)
 
@@ -263,7 +292,9 @@ func (s *InstanceConnectionStore) Delete(ctx context.Context, id int64) error {
 // ListByInstance retrieves all connections for an instance.
 func (s *InstanceConnectionStore) ListByInstance(ctx context.Context, instanceID int) ([]*InstanceConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
+		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
+			capabilities_checked_at, transfer_method, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ?
 		ORDER BY protocol
@@ -279,7 +310,9 @@ func (s *InstanceConnectionStore) ListByInstance(ctx context.Context, instanceID
 // ListEnabledByInstance retrieves all enabled connections for an instance.
 func (s *InstanceConnectionStore) ListEnabledByInstance(ctx context.Context, instanceID int) ([]*InstanceConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled, created_at, updated_at
+		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
+			capabilities_checked_at, transfer_method, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ? AND enabled = 1
 		ORDER BY protocol
@@ -298,14 +331,58 @@ func (s *InstanceConnectionStore) DeleteByInstance(ctx context.Context, instance
 	return err
 }
 
+// UpdateCapabilities updates the cached capabilities for a connection.
+func (s *InstanceConnectionStore) UpdateCapabilities(ctx context.Context, id int64, caps *ConnectionCapabilities) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE instance_connections
+		SET rsync_available = ?, rsync_version = ?, sftp_available = ?,
+			hardlinks_supported = ?, reflinks_supported = ?,
+			capabilities_checked_at = ?, updated_at = ?
+		WHERE id = ?`,
+		caps.RsyncAvailable, caps.RsyncVersion, caps.SFTPAvailable,
+		caps.HardlinksSupported, caps.ReflinksSupported,
+		now, now, id,
+	)
+	return err
+}
+
+// UpdateTransferMethod updates the user's preferred transfer method for a connection.
+func (s *InstanceConnectionStore) UpdateTransferMethod(ctx context.Context, id int64, method string) error {
+	if method != TransferMethodAuto && method != TransferMethodRsync && method != TransferMethodSFTP {
+		return errors.New("invalid transfer method: must be auto, rsync, or sftp")
+	}
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE instance_connections
+		SET transfer_method = ?, updated_at = ?
+		WHERE id = ?`,
+		method, now, id,
+	)
+	return err
+}
+
+// ConnectionCapabilities holds the detected capabilities for a connection.
+type ConnectionCapabilities struct {
+	RsyncAvailable     bool   `json:"rsyncAvailable"`
+	RsyncVersion       string `json:"rsyncVersion,omitempty"`
+	SFTPAvailable      bool   `json:"sftpAvailable"`
+	HardlinksSupported bool   `json:"hardlinksSupported"`
+	ReflinksSupported  bool   `json:"reflinksSupported"`
+}
+
 // scanConnection scans a single row into an InstanceConnection.
 func (s *InstanceConnectionStore) scanConnection(row *sql.Row) (*InstanceConnection, error) {
 	var c InstanceConnection
-	var privateKeyPath sql.NullString
+	var privateKeyPath, rsyncVersion, transferMethod sql.NullString
+	var rsyncAvailable, sftpAvailable, hardlinksSupported, reflinksSupported sql.NullBool
+	var capabilitiesChecked sql.NullTime
 
 	err := row.Scan(
 		&c.ID, &c.InstanceID, &c.Protocol, &c.Host, &c.Port,
-		&c.Username, &privateKeyPath, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
+		&c.Username, &privateKeyPath, &c.Enabled,
+		&rsyncAvailable, &rsyncVersion, &sftpAvailable, &hardlinksSupported, &reflinksSupported,
+		&capabilitiesChecked, &transferMethod, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -317,6 +394,30 @@ func (s *InstanceConnectionStore) scanConnection(row *sql.Row) (*InstanceConnect
 	if privateKeyPath.Valid {
 		c.PrivateKeyPath = privateKeyPath.String
 	}
+	if rsyncAvailable.Valid {
+		c.RsyncAvailable = &rsyncAvailable.Bool
+	}
+	if rsyncVersion.Valid {
+		c.RsyncVersion = rsyncVersion.String
+	}
+	if sftpAvailable.Valid {
+		c.SFTPAvailable = &sftpAvailable.Bool
+	}
+	if hardlinksSupported.Valid {
+		c.HardlinksSupported = &hardlinksSupported.Bool
+	}
+	if reflinksSupported.Valid {
+		c.ReflinksSupported = &reflinksSupported.Bool
+	}
+	if capabilitiesChecked.Valid {
+		c.CapabilitiesChecked = &capabilitiesChecked.Time
+	}
+	if transferMethod.Valid {
+		c.TransferMethod = transferMethod.String
+	} else {
+		c.TransferMethod = TransferMethodAuto
+	}
+
 	return &c, nil
 }
 
@@ -325,11 +426,15 @@ func (s *InstanceConnectionStore) scanConnections(rows *sql.Rows) ([]*InstanceCo
 	var connections []*InstanceConnection
 	for rows.Next() {
 		var c InstanceConnection
-		var privateKeyPath sql.NullString
+		var privateKeyPath, rsyncVersion, transferMethod sql.NullString
+		var rsyncAvailable, sftpAvailable, hardlinksSupported, reflinksSupported sql.NullBool
+		var capabilitiesChecked sql.NullTime
 
 		err := rows.Scan(
 			&c.ID, &c.InstanceID, &c.Protocol, &c.Host, &c.Port,
-			&c.Username, &privateKeyPath, &c.Enabled, &c.CreatedAt, &c.UpdatedAt,
+			&c.Username, &privateKeyPath, &c.Enabled,
+			&rsyncAvailable, &rsyncVersion, &sftpAvailable, &hardlinksSupported, &reflinksSupported,
+			&capabilitiesChecked, &transferMethod, &c.CreatedAt, &c.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -338,6 +443,30 @@ func (s *InstanceConnectionStore) scanConnections(rows *sql.Rows) ([]*InstanceCo
 		if privateKeyPath.Valid {
 			c.PrivateKeyPath = privateKeyPath.String
 		}
+		if rsyncAvailable.Valid {
+			c.RsyncAvailable = &rsyncAvailable.Bool
+		}
+		if rsyncVersion.Valid {
+			c.RsyncVersion = rsyncVersion.String
+		}
+		if sftpAvailable.Valid {
+			c.SFTPAvailable = &sftpAvailable.Bool
+		}
+		if hardlinksSupported.Valid {
+			c.HardlinksSupported = &hardlinksSupported.Bool
+		}
+		if reflinksSupported.Valid {
+			c.ReflinksSupported = &reflinksSupported.Bool
+		}
+		if capabilitiesChecked.Valid {
+			c.CapabilitiesChecked = &capabilitiesChecked.Time
+		}
+		if transferMethod.Valid {
+			c.TransferMethod = transferMethod.String
+		} else {
+			c.TransferMethod = TransferMethodAuto
+		}
+
 		connections = append(connections, &c)
 	}
 
