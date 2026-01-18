@@ -357,7 +357,7 @@ func (s *Server) Handler() (*chi.Mux, error) {
 	var instanceConnectionsHandler *handlers.InstanceConnectionsHandler
 	var sshTerminalHandler *handlers.SSHTerminalHandler
 	if s.instanceConnectionStore != nil {
-		instanceConnectionsHandler = handlers.NewInstanceConnectionsHandler(s.instanceConnectionStore)
+		instanceConnectionsHandler = handlers.NewInstanceConnectionsHandler(s.instanceConnectionStore, s.instancePathMappingStore)
 		sshTerminalHandler = handlers.NewSSHTerminalHandler(s.instanceConnectionStore)
 	}
 

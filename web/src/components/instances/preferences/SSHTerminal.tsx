@@ -13,6 +13,7 @@ import "@xterm/xterm/css/xterm.css"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import type { InstanceConnection } from "@/types"
+import { isSSHType } from "@/types"
 
 interface SSHTerminalProps {
   connection: InstanceConnection
@@ -237,8 +238,8 @@ interface SSHTerminalButtonProps {
 export function SSHTerminalButton({ connection, instanceId, instanceName }: SSHTerminalButtonProps) {
   const [open, setOpen] = useState(false)
 
-  // Only show for SSH/SFTP connections
-  if (connection.protocol !== "ssh" && connection.protocol !== "sftp") {
+  // Only show for SSH connections
+  if (!isSSHType(connection.type)) {
     return null
   }
 

@@ -120,8 +120,10 @@ func newTestDependencies(t *testing.T) *Dependencies {
 		trackerCustomizationStore,
 	)
 	instancePathMappingStore := models.NewInstancePathMappingStore(db)
-	instanceConnectionStore := models.NewInstanceConnectionStore(db)
-	instanceStore, err := models.NewInstanceStore(db, []byte("01234567890123456789012345678901"))
+	encryptionKey := []byte("01234567890123456789012345678901")
+	instanceConnectionStore, err := models.NewInstanceConnectionStore(db, encryptionKey)
+	require.NoError(t, err)
+	instanceStore, err := models.NewInstanceStore(db, encryptionKey)
 	require.NoError(t, err)
 	syncManager := qbittorrent.NewSyncManager(nil, trackerCustomizationStore)
 	transferStore := models.NewTransferStore(db)

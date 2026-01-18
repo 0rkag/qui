@@ -22,7 +22,8 @@ type Config struct {
 	Host           string
 	Port           int
 	Username       string
-	PrivateKeyPath string
+	Password       string // Password authentication (used if PrivateKeyPath is empty)
+	PrivateKeyPath string // Private key authentication (takes precedence over password)
 	Timeout        time.Duration
 }
 
@@ -33,6 +34,7 @@ type Client struct {
 }
 
 // New creates a new SSH client and establishes a connection.
+// Authentication priority: private key (if provided) > password.
 func New(cfg *Config) (*Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config cannot be nil")
@@ -44,16 +46,30 @@ func New(cfg *Config) (*Client, error) {
 		cfg.Timeout = 30 * time.Second
 	}
 
-	signer, err := loadPrivateKey(cfg.PrivateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("load private key: %w", err)
+	// Build authentication methods
+	var authMethods []ssh.AuthMethod
+
+	// Private key takes precedence if provided
+	if cfg.PrivateKeyPath != "" {
+		signer, err := loadPrivateKey(cfg.PrivateKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("load private key: %w", err)
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	}
+
+	// Password authentication as fallback or primary
+	if cfg.Password != "" {
+		authMethods = append(authMethods, ssh.Password(cfg.Password))
+	}
+
+	if len(authMethods) == 0 {
+		return nil, fmt.Errorf("no authentication method provided (need password or private key)")
 	}
 
 	sshConfig := &ssh.ClientConfig{
 		User: cfg.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
-		},
+		Auth: authMethods,
 		// Note: InsecureIgnoreHostKey is acceptable for this use case as connections
 		// are made to user-configured internal/trusted hosts. Proper host key
 		// verification would require a known_hosts management UI which adds complexity
@@ -69,6 +85,9 @@ func New(cfg *Config) (*Client, error) {
 		// The underlying error may still contain connection details for logging
 		return nil, fmt.Errorf("ssh connection failed: %w", err)
 	}
+
+	// Clear password from config after successful connection
+	cfg.Password = ""
 
 	return &Client{
 		config: cfg,
@@ -194,7 +213,7 @@ func (c *Client) MkdirAll(ctx context.Context, path string) error {
 	}
 
 	// Try to create the directory
-	result, err := c.Exec(ctx, fmt.Sprintf("mkdir -p %s", shellQuote(path)))
+	result, err := c.Exec(ctx, fmt.Sprintf("mkdir -p %s", ShellQuote(path)))
 	if err != nil {
 		return err
 	}
@@ -210,7 +229,7 @@ func (c *Client) Exists(ctx context.Context, path string) (bool, error) {
 	if err := ValidatePath(path); err != nil {
 		return false, fmt.Errorf("invalid path: %w", err)
 	}
-	result, err := c.Exec(ctx, fmt.Sprintf("test -e %s", shellQuote(path)))
+	result, err := c.Exec(ctx, fmt.Sprintf("test -e %s", ShellQuote(path)))
 	if err != nil {
 		return false, err
 	}
@@ -222,7 +241,7 @@ func (c *Client) IsDir(ctx context.Context, path string) (bool, error) {
 	if err := ValidatePath(path); err != nil {
 		return false, fmt.Errorf("invalid path: %w", err)
 	}
-	result, err := c.Exec(ctx, fmt.Sprintf("test -d %s", shellQuote(path)))
+	result, err := c.Exec(ctx, fmt.Sprintf("test -d %s", ShellQuote(path)))
 	if err != nil {
 		return false, err
 	}
@@ -237,7 +256,7 @@ func (c *Client) Hardlink(ctx context.Context, src, dst string) error {
 	if err := ValidatePath(dst); err != nil {
 		return fmt.Errorf("invalid destination path: %w", err)
 	}
-	_, err := c.ExecSimple(ctx, fmt.Sprintf("ln %s %s", shellQuote(src), shellQuote(dst)))
+	_, err := c.ExecSimple(ctx, fmt.Sprintf("ln %s %s", ShellQuote(src), ShellQuote(dst)))
 	return err
 }
 
@@ -250,7 +269,7 @@ func (c *Client) Reflink(ctx context.Context, src, dst string) error {
 		return fmt.Errorf("invalid destination path: %w", err)
 	}
 	// Try cp --reflink=always first (Linux), fall back to cp -c (macOS)
-	result, err := c.Exec(ctx, fmt.Sprintf("cp --reflink=always %s %s 2>/dev/null || cp -c %s %s", shellQuote(src), shellQuote(dst), shellQuote(src), shellQuote(dst)))
+	result, err := c.Exec(ctx, fmt.Sprintf("cp --reflink=always %s %s 2>/dev/null || cp -c %s %s", ShellQuote(src), ShellQuote(dst), ShellQuote(src), ShellQuote(dst)))
 	if err != nil {
 		return err
 	}
@@ -268,7 +287,7 @@ func (c *Client) Copy(ctx context.Context, src, dst string) error {
 	if err := ValidatePath(dst); err != nil {
 		return fmt.Errorf("invalid destination path: %w", err)
 	}
-	_, err := c.ExecSimple(ctx, fmt.Sprintf("cp %s %s", shellQuote(src), shellQuote(dst)))
+	_, err := c.ExecSimple(ctx, fmt.Sprintf("cp %s %s", ShellQuote(src), ShellQuote(dst)))
 	return err
 }
 
@@ -280,7 +299,7 @@ func (c *Client) Remove(ctx context.Context, path string) error {
 	if err := ValidatePath(path); err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}
-	_, err := c.ExecSimple(ctx, fmt.Sprintf("rm -rf %s", shellQuote(path)))
+	_, err := c.ExecSimple(ctx, fmt.Sprintf("rm -rf %s", ShellQuote(path)))
 	return err
 }
 
@@ -316,15 +335,9 @@ func loadPrivateKey(path string) (ssh.Signer, error) {
 }
 
 // ShellQuote quotes a string for safe use in shell commands.
-// Exported for use by transfer.go.
+// Uses single quotes and escapes embedded single quotes.
 func ShellQuote(s string) string {
-	// Use single quotes and escape any single quotes in the string
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
-}
-
-// shellQuote is an internal alias for backwards compatibility.
-func shellQuote(s string) string {
-	return ShellQuote(s)
 }
 
 // ShellSession represents an interactive shell session with PTY.

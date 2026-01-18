@@ -156,8 +156,8 @@ func (h *SSHTerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Only SSH connections support terminal
-	if conn.Protocol != models.ProtocolSSH && conn.Protocol != models.ProtocolSFTP {
-		RespondError(w, http.StatusBadRequest, "Terminal only supported for SSH/SFTP connections")
+	if !models.IsSSHType(conn.Type) {
+		RespondError(w, http.StatusBadRequest, "Terminal only supported for SSH connections")
 		return
 	}
 
@@ -169,11 +169,19 @@ func (h *SSHTerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Reque
 	}
 	defer ws.Close()
 
+	// Decrypt password if present
+	password, err := h.store.GetDecryptedPassword(conn)
+	if err != nil {
+		log.Warn().Err(err).Msg("terminal: failed to decrypt password, proceeding without it")
+		password = ""
+	}
+
 	// Create SSH client
 	cfg := &sshclient.Config{
 		Host:           conn.Host,
 		Port:           conn.Port,
 		Username:       conn.Username,
+		Password:       password,
 		PrivateKeyPath: conn.PrivateKeyPath,
 	}
 

@@ -65,8 +65,8 @@ import type {
   InstanceConnection,
   InstanceConnectionCreate,
   InstanceConnectionUpdate,
-  SSHTestRequest,
-  SSHTestResult,
+  ConnectionTestRequest,
+  ConnectionTestResult,
   LocalCrossSeedMatch,
   LogExclusions,
   LogExclusionsInput,
@@ -662,15 +662,15 @@ class ApiClient {
     return this.request(`/instances/${instanceId}/connections/${connectionId}`, { method: "DELETE" })
   }
 
-  async testSSHConnection(instanceId: number, data: SSHTestRequest): Promise<SSHTestResult> {
-    return this.request<SSHTestResult>(`/instances/${instanceId}/connections/test`, {
+  async testRemoteConnection(instanceId: number, data: ConnectionTestRequest): Promise<ConnectionTestResult> {
+    return this.request<ConnectionTestResult>(`/instances/${instanceId}/connections/test`, {
       method: "POST",
       body: JSON.stringify(data),
     })
   }
 
-  async testSSHConnectionExisting(instanceId: number, connectionId: number): Promise<SSHTestResult> {
-    return this.request<SSHTestResult>(`/instances/${instanceId}/connections/${connectionId}/test`, {
+  async testRemoteConnectionExisting(instanceId: number, connectionId: number): Promise<ConnectionTestResult> {
+    return this.request<ConnectionTestResult>(`/instances/${instanceId}/connections/${connectionId}/test`, {
       method: "POST",
     })
   }

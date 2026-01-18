@@ -21,7 +21,7 @@ func newTestSSHConnection(instanceID int) *models.InstanceConnection {
 	return &models.InstanceConnection{
 		ID:             int64(instanceID),
 		InstanceID:     instanceID,
-		Protocol:       "ssh",
+		Type:           models.ConnectionTypeSSHAuto,
 		Host:           "127.0.0.1",
 		Port:           22,
 		Username:       "root",
@@ -265,47 +265,37 @@ func TestSSHExecutor_Prepare(t *testing.T) {
 
 func TestSSHExecutor_determineLinkMode(t *testing.T) {
 	tests := []struct {
-		name        string
-		source      *models.Instance
-		target      *models.Instance
-		sourcePath  string
-		targetPath  string
-		expected    string
+		name     string
+		source   *models.Instance
+		target   *models.Instance
+		expected string
 	}{
 		{
-			name:       "both remote - transfer mode",
-			source:     newTestInstance(1, withRemoteAccess()),
-			target:     newTestInstance(2, withRemoteAccess()),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "transfer",
+			name:     "both remote - transfer mode",
+			source:   newTestInstance(1, withRemoteAccess()),
+			target:   newTestInstance(2, withRemoteAccess()),
+			expected: "transfer",
 		},
 		{
-			name:       "source local, target remote - transfer mode",
-			source:     newTestInstance(1, withLocalAccess(true)),
-			target:     newTestInstance(2, withRemoteAccess()),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "transfer",
+			name:     "source local, target remote - transfer mode",
+			source:   newTestInstance(1, withLocalAccess(true)),
+			target:   newTestInstance(2, withRemoteAccess()),
+			expected: "transfer",
 		},
 		{
-			name:       "source remote, target local - transfer mode",
-			source:     newTestInstance(1, withRemoteAccess()),
-			target:     newTestInstance(2, withLocalAccess(true)),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "transfer",
+			name:     "source remote, target local - transfer mode",
+			source:   newTestInstance(1, withRemoteAccess()),
+			target:   newTestInstance(2, withLocalAccess(true)),
+			expected: "transfer",
 		},
 		{
-			name:   "both local with hardlinks enabled - hardlink mode",
-			source: newTestInstance(1, withLocalAccess(true)),
-			target: newTestInstance(2, withLocalAccess(true), withHardlinks(true)),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "hardlink",
+			name:     "both local with hardlinks enabled - hardlink mode",
+			source:   newTestInstance(1, withLocalAccess(true)),
+			target:   newTestInstance(2, withLocalAccess(true), withHardlinks(true)),
+			expected: "hardlink",
 		},
 		{
-			name: "both local with reflinks enabled - reflink mode",
+			name:   "both local with reflinks enabled - reflink mode",
 			source: newTestInstance(1, withLocalAccess(true)),
 			target: func() *models.Instance {
 				i := newTestInstance(2, withLocalAccess(true))
@@ -313,12 +303,10 @@ func TestSSHExecutor_determineLinkMode(t *testing.T) {
 				i.UseReflinks = true
 				return i
 			}(),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "reflink",
+			expected: "reflink",
 		},
 		{
-			name: "both local with fallback mode - copy mode",
+			name:   "both local with fallback mode - copy mode",
 			source: newTestInstance(1, withLocalAccess(true)),
 			target: func() *models.Instance {
 				i := newTestInstance(2, withLocalAccess(true))
@@ -327,12 +315,10 @@ func TestSSHExecutor_determineLinkMode(t *testing.T) {
 				i.FallbackToRegularMode = true
 				return i
 			}(),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "copy",
+			expected: "copy",
 		},
 		{
-			name: "both local no linking - direct mode",
+			name:   "both local no linking - direct mode",
 			source: newTestInstance(1, withLocalAccess(true)),
 			target: func() *models.Instance {
 				i := newTestInstance(2, withLocalAccess(true))
@@ -341,16 +327,14 @@ func TestSSHExecutor_determineLinkMode(t *testing.T) {
 				i.FallbackToRegularMode = false
 				return i
 			}(),
-			sourcePath: "/downloads/source",
-			targetPath: "/downloads/target",
-			expected:   "direct",
+			expected: "direct",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			executor := &SSHExecutor{}
-			result := executor.determineLinkMode(tt.source, tt.target, tt.sourcePath, tt.targetPath)
+			result := executor.determineLinkMode(tt.source, tt.target)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

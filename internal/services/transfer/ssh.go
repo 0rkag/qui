@@ -175,7 +175,7 @@ func (e *SSHExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepare
 	}
 
 	// 10. Determine link mode for remote transfers
-	result.LinkMode = e.determineLinkMode(sourceInstance, targetInstance, props.SavePath, result.TargetSavePath)
+	result.LinkMode = e.determineLinkMode(sourceInstance, targetInstance)
 
 	// 11. Export torrent for later use
 	torrentBytes, _, _, err := e.syncManager.ExportTorrent(ctx, t.SourceInstanceID, t.TorrentHash)
@@ -198,9 +198,15 @@ func (e *SSHExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepare
 
 // CreateLinks creates files at the target location via SSH/rsync.
 func (e *SSHExecutor) CreateLinks(ctx context.Context, t *models.Transfer, prep *PrepareResult) (int, error) {
-	// Get SSH connections for source and target
-	sourceSSH, _ := e.connectionStore.GetSSHByInstance(ctx, t.SourceInstanceID)
-	targetSSH, _ := e.connectionStore.GetSSHByInstance(ctx, t.TargetInstanceID)
+	// Get SSH connections for source and target (errors are ok - means no SSH configured for that instance)
+	sourceSSH, err := e.connectionStore.GetSSHByInstance(ctx, t.SourceInstanceID)
+	if err != nil && err != models.ErrConnectionNotFound {
+		log.Warn().Err(err).Int("instanceID", t.SourceInstanceID).Msg("[TRANSFER-SSH] Failed to get source SSH connection")
+	}
+	targetSSH, err := e.connectionStore.GetSSHByInstance(ctx, t.TargetInstanceID)
+	if err != nil && err != models.ErrConnectionNotFound {
+		log.Warn().Err(err).Int("instanceID", t.TargetInstanceID).Msg("[TRANSFER-SSH] Failed to get target SSH connection")
+	}
 
 	switch prep.LinkMode {
 	case "transfer":
@@ -323,32 +329,41 @@ func (e *SSHExecutor) getSSHClient(conn *models.InstanceConnection) (*sshclient.
 	return e.sshPool.Get(cfg)
 }
 
+// Transfer method constants for internal use
+const (
+	transferMethodRsync = "rsync"
+	transferMethodSFTP  = "sftp"
+	transferMethodSCP   = "scp"
+)
+
 // resolveTransferMethod determines whether to use rsync or SFTP for a transfer.
 func (e *SSHExecutor) resolveTransferMethod(sourceSSH, targetSSH *models.InstanceConnection) string {
-	// Check user preference from the connection that will be used for transfer
+	// Check connection type preference
 	conn := targetSSH
 	if conn == nil {
 		conn = sourceSSH
 	}
 	if conn == nil {
-		return models.TransferMethodSFTP // Fallback to SFTP if no connection
+		return transferMethodSFTP // Fallback to SFTP if no connection
 	}
 
-	// Explicit user preference takes priority
-	switch conn.TransferMethod {
-	case models.TransferMethodRsync:
-		return models.TransferMethodRsync
-	case models.TransferMethodSFTP:
-		return models.TransferMethodSFTP
+	// Connection type determines the transfer method
+	switch conn.Type {
+	case models.ConnectionTypeSSHRsync:
+		return transferMethodRsync
+	case models.ConnectionTypeSSHSFTP:
+		return transferMethodSFTP
+	case models.ConnectionTypeSSHSCP:
+		return transferMethodSCP
+	case models.ConnectionTypeSSHAuto:
+		// Auto-detect: prefer rsync if available
+		if conn.RsyncAvailable != nil && *conn.RsyncAvailable {
+			return transferMethodRsync
+		}
+		return transferMethodSFTP
+	default:
+		return transferMethodSFTP
 	}
-
-	// Auto-detect: prefer rsync if available
-	if conn.RsyncAvailable != nil && *conn.RsyncAvailable {
-		return models.TransferMethodRsync
-	}
-
-	// Default to SFTP (always available with SSH)
-	return models.TransferMethodSFTP
 }
 
 // transferFiles transfers files via rsync or SFTP based on capabilities.
@@ -361,7 +376,7 @@ func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 		Msg("[TRANSFER-SSH] Using transfer method")
 
 	switch method {
-	case models.TransferMethodRsync:
+	case transferMethodRsync:
 		count, err := e.transferFilesRsync(ctx, t, prep, sourceSSH, targetSSH)
 		if err != nil {
 			// If rsync fails, try SFTP as fallback
@@ -370,7 +385,12 @@ func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 		}
 		return count, nil
 
-	case models.TransferMethodSFTP:
+	case transferMethodSFTP:
+		return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
+
+	case transferMethodSCP:
+		// SCP is not yet implemented, fall back to SFTP
+		log.Warn().Int64("id", t.ID).Msg("[TRANSFER-SSH] SCP not implemented, using SFTP")
 		return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
 
 	default:
@@ -683,27 +703,18 @@ func (e *SSHExecutor) computeTargetPath(sourcePath string, targetInstance *model
 }
 
 // determineLinkMode decides how files should be handled for SSH transfers.
-func (e *SSHExecutor) determineLinkMode(source, target *models.Instance, sourcePath, targetPath string) string {
+// Returns: "transfer" if files need to be moved between machines,
+// "hardlink"/"reflink"/"copy"/"direct" for same-machine operations.
+func (e *SSHExecutor) determineLinkMode(source, target *models.Instance) string {
 	sourceLocal := source.HasLocalFilesystemAccess
 	targetLocal := target.HasLocalFilesystemAccess
 
-	// If both are remote or on different machines, we need to transfer
-	if !sourceLocal && !targetLocal {
+	// If either side lacks local filesystem access, we need to transfer
+	if !sourceLocal || !targetLocal {
 		return "transfer"
 	}
 
-	// If source is local and target is remote, we need to transfer
-	if sourceLocal && !targetLocal {
-		return "transfer"
-	}
-
-	// If source is remote and target is local, we need to transfer
-	if !sourceLocal && targetLocal {
-		return "transfer"
-	}
-
-	// Both local - delegate to local executor logic
-	// For now, return hardlink as default
+	// Both have local access - use link mode based on target settings
 	if target.UseHardlinks {
 		return "hardlink"
 	}

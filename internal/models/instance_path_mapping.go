@@ -195,17 +195,43 @@ func (s *InstancePathMappingStore) DeleteByInstance(ctx context.Context, instanc
 	return err
 }
 
-// UpdateSortOrder updates the sort order for multiple mappings.
+// UpdateSortOrder updates the sort order for multiple mappings in a single query.
 func (s *InstancePathMappingStore) UpdateSortOrder(ctx context.Context, orders map[int64]int) error {
-	for id, order := range orders {
-		_, err := s.db.ExecContext(ctx, `
-			UPDATE instance_path_mappings SET sort_order = ?, updated_at = ? WHERE id = ?`,
-			order, time.Now().UTC(), id)
-		if err != nil {
-			return err
-		}
+	if len(orders) == 0 {
+		return nil
 	}
-	return nil
+
+	// Build a single UPDATE with CASE statement for efficiency
+	// UPDATE instance_path_mappings SET sort_order = CASE id WHEN 1 THEN 0 WHEN 2 THEN 1 ... END, updated_at = ? WHERE id IN (1,2,...)
+	now := time.Now().UTC()
+
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString("UPDATE instance_path_mappings SET sort_order = CASE id ")
+
+	// Collect IDs separately for the WHERE clause
+	mappingIDs := make([]int64, 0, len(orders))
+	args := make([]interface{}, 0, len(orders)*3+1) // id+order pairs, now, and ids for IN clause
+
+	for id, order := range orders {
+		queryBuilder.WriteString("WHEN ? THEN ? ")
+		args = append(args, id, order)
+		mappingIDs = append(mappingIDs, id)
+	}
+
+	queryBuilder.WriteString("END, updated_at = ? WHERE id IN (")
+	args = append(args, now)
+
+	for i, id := range mappingIDs {
+		if i > 0 {
+			queryBuilder.WriteString(",")
+		}
+		queryBuilder.WriteString("?")
+		args = append(args, id)
+	}
+	queryBuilder.WriteString(")")
+
+	_, err := s.db.ExecContext(ctx, queryBuilder.String(), args...)
+	return err
 }
 
 // scanMapping scans a single row into an InstancePathMapping.

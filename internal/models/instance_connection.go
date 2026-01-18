@@ -5,8 +5,13 @@ package models
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
+	"io"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -23,17 +28,56 @@ var (
 	validConnHostname = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.\-:\[\]]*$`)
 )
 
-// Connection protocol types
+// Connection type constants - these define both the protocol and transfer method
 const (
-	ProtocolSSH  = "ssh"
-	ProtocolSFTP = "sftp"
-	ProtocolFTP  = "ftp"
+	// SSH-based connection types
+	ConnectionTypeSSHAuto   = "ssh_auto"   // SSH, auto-select best transfer (rsync > sftp > scp)
+	ConnectionTypeSSHRsync  = "ssh_rsync"  // SSH, force rsync
+	ConnectionTypeSSHSFTP   = "ssh_sftp"   // SSH, force SFTP
+	ConnectionTypeSSHSCP    = "ssh_scp"    // SSH, force SCP
+
+	// FTP-based connection types
+	ConnectionTypeFTPExplicit = "ftp_explicit" // FTP with AUTH TLS (explicit TLS)
+	ConnectionTypeFTPImplicit = "ftp_implicit" // FTPS (implicit TLS from start)
+	ConnectionTypeFTPPlain    = "ftp_plain"    // Plain FTP (no encryption)
 )
+
+// IsSSHType returns true if the connection type is SSH-based.
+func IsSSHType(connType string) bool {
+	switch connType {
+	case ConnectionTypeSSHAuto, ConnectionTypeSSHRsync, ConnectionTypeSSHSFTP, ConnectionTypeSSHSCP:
+		return true
+	}
+	return false
+}
+
+// IsFTPType returns true if the connection type is FTP-based.
+func IsFTPType(connType string) bool {
+	switch connType {
+	case ConnectionTypeFTPExplicit, ConnectionTypeFTPImplicit, ConnectionTypeFTPPlain:
+		return true
+	}
+	return false
+}
+
+// ValidConnectionTypes returns all valid connection type values.
+func ValidConnectionTypes() []string {
+	return []string{
+		ConnectionTypeSSHAuto,
+		ConnectionTypeSSHRsync,
+		ConnectionTypeSSHSFTP,
+		ConnectionTypeSSHSCP,
+		ConnectionTypeFTPExplicit,
+		ConnectionTypeFTPImplicit,
+		ConnectionTypeFTPPlain,
+	}
+}
 
 // Validation limits
 const (
 	MaxHostnameLength     = 253
 	MaxUsernameLength     = 64
+	MaxPasswordLength     = 256
 	MaxPrivateKeyPathLen  = 4096
 	MaxPortNumber         = 65535
 	MaxConnectionsPerList = 100 // Reasonable limit for connections per instance
@@ -41,30 +85,25 @@ const (
 
 var (
 	ErrConnectionNotFound      = errors.New("connection not found")
-	ErrDuplicateConnection     = errors.New("connection already exists for this instance and protocol")
-	ErrUnsupportedProtocol     = errors.New("unsupported protocol")
+	ErrDuplicateConnection     = errors.New("connection already exists for this instance and type")
+	ErrUnsupportedType         = errors.New("unsupported connection type")
 	ErrInvalidConnectionConfig = errors.New("invalid connection configuration")
-)
-
-// Transfer method constants
-const (
-	TransferMethodAuto  = "auto"  // Auto-detect: prefer rsync, fallback to sftp
-	TransferMethodRsync = "rsync" // Force rsync (fails if not available)
-	TransferMethodSFTP  = "sftp"  // Force SFTP
+	ErrPathMappingRequired     = errors.New("at least one path mapping is required before creating a connection")
 )
 
 // InstanceConnection represents a connection configuration for remote access to an instance.
 type InstanceConnection struct {
-	ID             int64     `json:"id"`
-	InstanceID     int       `json:"instanceId"`
-	Protocol       string    `json:"protocol"`       // "ssh", "sftp", "ftp"
-	Host           string    `json:"host"`
-	Port           int       `json:"port"`
-	Username       string    `json:"username"`
-	PrivateKeyPath string    `json:"privateKeyPath,omitempty"` // For SSH: path to key on QUI server
-	Enabled        bool      `json:"enabled"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	ID         int64     `json:"id"`
+	InstanceID int       `json:"instanceId"`
+	Type       string    `json:"type"` // ssh_auto, ssh_rsync, ssh_sftp, ssh_scp, ftp_explicit, ftp_implicit, ftp_plain
+	Host       string    `json:"host"`
+	Port       int       `json:"port"`
+	Username   string    `json:"username"`
+	Password   string    `json:"password,omitempty"`       // Encrypted in DB, only for input (never returned)
+	PrivateKeyPath string `json:"privateKeyPath,omitempty"` // For SSH types: path to key on QUI server
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 
 	// Detected capabilities (cached from connection test)
 	RsyncAvailable      *bool      `json:"rsyncAvailable,omitempty"`
@@ -74,8 +113,8 @@ type InstanceConnection struct {
 	ReflinksSupported   *bool      `json:"reflinksSupported,omitempty"`
 	CapabilitiesChecked *time.Time `json:"capabilitiesCheckedAt,omitempty"`
 
-	// User preference for transfer method
-	TransferMethod string `json:"transferMethod,omitempty"` // "auto", "rsync", "sftp"
+	// Internal: encrypted password (not exported to JSON)
+	passwordEncrypted string
 }
 
 // Validate checks that the connection has valid data.
@@ -83,12 +122,16 @@ func (c *InstanceConnection) Validate() error {
 	if c.InstanceID <= 0 {
 		return errors.New("instance ID is required")
 	}
-	if strings.TrimSpace(c.Protocol) == "" {
-		return errors.New("protocol is required")
+
+	// Validate type
+	connType := strings.TrimSpace(c.Type)
+	if connType == "" {
+		return errors.New("type is required")
 	}
-	if c.Protocol != ProtocolSSH && c.Protocol != ProtocolSFTP && c.Protocol != ProtocolFTP {
-		return ErrUnsupportedProtocol
+	if !IsSSHType(connType) && !IsFTPType(connType) {
+		return ErrUnsupportedType
 	}
+	c.Type = connType
 
 	// Validate host format
 	host := strings.TrimSpace(c.Host)
@@ -120,11 +163,29 @@ func (c *InstanceConnection) Validate() error {
 	}
 	c.Username = username
 
-	// Validate private key path if provided
+	// Validate password length if provided
+	if c.Password != "" && len(c.Password) > MaxPasswordLength {
+		return errors.New("password too long (max 256 chars)")
+	}
+
+	// Validate private key path if provided (SSH types only)
 	if c.PrivateKeyPath != "" {
+		if !IsSSHType(c.Type) {
+			return errors.New("private key path is only valid for SSH connection types")
+		}
 		if err := validatePrivateKeyPath(c.PrivateKeyPath); err != nil {
 			return err
 		}
+	}
+
+	// For SSH types: need either password or private key
+	if IsSSHType(c.Type) && c.Password == "" && c.PrivateKeyPath == "" {
+		return errors.New("SSH connections require either password or private key")
+	}
+
+	// For FTP types: need password
+	if IsFTPType(c.Type) && c.Password == "" && c.passwordEncrypted == "" {
+		return errors.New("FTP connections require a password")
 	}
 
 	return nil
@@ -132,13 +193,13 @@ func (c *InstanceConnection) Validate() error {
 
 // validatePrivateKeyPath checks that a private key path is safe.
 func validatePrivateKeyPath(path string) error {
-	// Clean the path to resolve any . or ..
-	cleaned := filepath.Clean(path)
-
-	// Check for path traversal attempts
-	if strings.Contains(cleaned, "..") {
+	// Check for path traversal attempts BEFORE cleaning (Clean removes ".." sequences)
+	if strings.Contains(path, "..") {
 		return errors.New("private key path contains path traversal")
 	}
+
+	// Clean the path to normalize it
+	cleaned := filepath.Clean(path)
 
 	// Must be an absolute path
 	if !filepath.IsAbs(cleaned) {
@@ -153,13 +214,15 @@ func validatePrivateKeyPath(path string) error {
 	return nil
 }
 
-// DefaultPort returns the default port for a given protocol.
-func DefaultPort(protocol string) int {
-	switch protocol {
-	case ProtocolSSH, ProtocolSFTP:
+// DefaultPort returns the default port for a given connection type.
+func DefaultPort(connType string) int {
+	switch connType {
+	case ConnectionTypeSSHAuto, ConnectionTypeSSHRsync, ConnectionTypeSSHSFTP, ConnectionTypeSSHSCP:
 		return 22
-	case ProtocolFTP:
+	case ConnectionTypeFTPExplicit, ConnectionTypeFTPPlain:
 		return 21
+	case ConnectionTypeFTPImplicit:
+		return 990
 	default:
 		return 22
 	}
@@ -167,12 +230,80 @@ func DefaultPort(protocol string) int {
 
 // InstanceConnectionStore handles database operations for instance connections.
 type InstanceConnectionStore struct {
-	db dbinterface.Querier
+	db            dbinterface.Querier
+	encryptionKey []byte
 }
 
 // NewInstanceConnectionStore creates a new InstanceConnectionStore.
-func NewInstanceConnectionStore(db dbinterface.Querier) *InstanceConnectionStore {
-	return &InstanceConnectionStore{db: db}
+func NewInstanceConnectionStore(db dbinterface.Querier, encryptionKey []byte) (*InstanceConnectionStore, error) {
+	if len(encryptionKey) != 32 {
+		return nil, errors.New("encryption key must be 32 bytes")
+	}
+	return &InstanceConnectionStore{db: db, encryptionKey: encryptionKey}, nil
+}
+
+// encrypt encrypts a string using AES-GCM.
+func (s *InstanceConnectionStore) encrypt(plaintext string) (string, error) {
+	if plaintext == "" {
+		return "", nil
+	}
+
+	block, err := aes.NewCipher(s.encryptionKey)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// decrypt decrypts an AES-GCM encrypted string.
+func (s *InstanceConnectionStore) decrypt(ciphertext string) (string, error) {
+	if ciphertext == "" {
+		return "", nil
+	}
+
+	data, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		return "", err
+	}
+
+	block, err := aes.NewCipher(s.encryptionKey)
+	if err != nil {
+		return "", err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+
+	if len(data) < gcm.NonceSize() {
+		return "", errors.New("ciphertext too short")
+	}
+
+	nonce, ciphertextBytes := data[:gcm.NonceSize()], data[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, ciphertextBytes, nil)
+	if err != nil {
+		return "", err
+	}
+
+	return string(plaintext), nil
+}
+
+// GetDecryptedPassword returns the decrypted password for a connection.
+func (s *InstanceConnectionStore) GetDecryptedPassword(c *InstanceConnection) (string, error) {
+	return s.decrypt(c.passwordEncrypted)
 }
 
 // Create inserts a new connection configuration.
@@ -181,19 +312,24 @@ func (s *InstanceConnectionStore) Create(ctx context.Context, c *InstanceConnect
 		return nil, err
 	}
 
-	// Set default transfer method
-	if c.TransferMethod == "" {
-		c.TransferMethod = TransferMethodAuto
+	// Encrypt password if provided
+	var encryptedPassword string
+	if c.Password != "" {
+		var err error
+		encryptedPassword, err = s.encrypt(c.Password)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO instance_connections (
-			instance_id, protocol, host, port, username, private_key_path, enabled,
-			transfer_method, created_at, updated_at
+			instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
+			created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.InstanceID, c.Protocol, c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled,
-		c.TransferMethod, now, now,
+		c.InstanceID, c.Type, c.Host, c.Port, c.Username, encryptedPassword, c.PrivateKeyPath, c.Enabled,
+		now, now,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -208,6 +344,7 @@ func (s *InstanceConnectionStore) Create(ctx context.Context, c *InstanceConnect
 	}
 
 	c.ID = id
+	c.Password = "" // Clear password from memory
 	c.CreatedAt = now
 	c.UpdatedAt = now
 	return c, nil
@@ -216,30 +353,54 @@ func (s *InstanceConnectionStore) Create(ctx context.Context, c *InstanceConnect
 // Get retrieves a connection by ID.
 func (s *InstanceConnectionStore) Get(ctx context.Context, id int64) (*InstanceConnection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, transfer_method, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at
 		FROM instance_connections
 		WHERE id = ?`, id)
 
 	return s.scanConnection(row)
 }
 
-// GetByInstanceAndProtocol retrieves a connection for a specific instance and protocol.
-func (s *InstanceConnectionStore) GetByInstanceAndProtocol(ctx context.Context, instanceID int, protocol string) (*InstanceConnection, error) {
+// GetByInstanceAndType retrieves a connection for a specific instance and type.
+func (s *InstanceConnectionStore) GetByInstanceAndType(ctx context.Context, instanceID int, connType string) (*InstanceConnection, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, transfer_method, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at
 		FROM instance_connections
-		WHERE instance_id = ? AND protocol = ?`, instanceID, protocol)
+		WHERE instance_id = ? AND type = ?`, instanceID, connType)
 
 	return s.scanConnection(row)
 }
 
-// GetSSHByInstance retrieves the SSH connection for an instance (convenience method).
+// GetSSHByInstance retrieves any SSH-type connection for an instance (convenience method).
+// Returns the first SSH connection found (ssh_auto, ssh_rsync, ssh_sftp, or ssh_scp).
 func (s *InstanceConnectionStore) GetSSHByInstance(ctx context.Context, instanceID int) (*InstanceConnection, error) {
-	return s.GetByInstanceAndProtocol(ctx, instanceID, ProtocolSSH)
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
+			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
+			capabilities_checked_at, created_at, updated_at
+		FROM instance_connections
+		WHERE instance_id = ? AND type IN (?, ?, ?, ?)
+		LIMIT 1`,
+		instanceID, ConnectionTypeSSHAuto, ConnectionTypeSSHRsync, ConnectionTypeSSHSFTP, ConnectionTypeSSHSCP)
+
+	return s.scanConnection(row)
+}
+
+// GetFTPByInstance retrieves any FTP-type connection for an instance (convenience method).
+func (s *InstanceConnectionStore) GetFTPByInstance(ctx context.Context, instanceID int) (*InstanceConnection, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
+			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
+			capabilities_checked_at, created_at, updated_at
+		FROM instance_connections
+		WHERE instance_id = ? AND type IN (?, ?, ?)
+		LIMIT 1`,
+		instanceID, ConnectionTypeFTPExplicit, ConnectionTypeFTPImplicit, ConnectionTypeFTPPlain)
+
+	return s.scanConnection(row)
 }
 
 // Update modifies an existing connection.
@@ -249,12 +410,30 @@ func (s *InstanceConnectionStore) Update(ctx context.Context, c *InstanceConnect
 	}
 
 	c.UpdatedAt = time.Now().UTC()
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE instance_connections
-		SET host = ?, port = ?, username = ?, private_key_path = ?, enabled = ?, updated_at = ?
-		WHERE id = ?`,
-		c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled, c.UpdatedAt, c.ID,
-	)
+
+	// If password is provided, encrypt it; otherwise keep existing
+	var query string
+	var args []interface{}
+
+	if c.Password != "" {
+		encryptedPassword, err := s.encrypt(c.Password)
+		if err != nil {
+			return err
+		}
+		query = `
+			UPDATE instance_connections
+			SET host = ?, port = ?, username = ?, password_encrypted = ?, private_key_path = ?, enabled = ?, updated_at = ?
+			WHERE id = ?`
+		args = []interface{}{c.Host, c.Port, c.Username, encryptedPassword, c.PrivateKeyPath, c.Enabled, c.UpdatedAt, c.ID}
+	} else {
+		query = `
+			UPDATE instance_connections
+			SET host = ?, port = ?, username = ?, private_key_path = ?, enabled = ?, updated_at = ?
+			WHERE id = ?`
+		args = []interface{}{c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled, c.UpdatedAt, c.ID}
+	}
+
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return ErrDuplicateConnection
@@ -269,6 +448,8 @@ func (s *InstanceConnectionStore) Update(ctx context.Context, c *InstanceConnect
 	if rows == 0 {
 		return ErrConnectionNotFound
 	}
+
+	c.Password = "" // Clear password from memory
 	return nil
 }
 
@@ -292,12 +473,12 @@ func (s *InstanceConnectionStore) Delete(ctx context.Context, id int64) error {
 // ListByInstance retrieves all connections for an instance.
 func (s *InstanceConnectionStore) ListByInstance(ctx context.Context, instanceID int) ([]*InstanceConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, transfer_method, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ?
-		ORDER BY protocol
+		ORDER BY type
 		LIMIT ?`, instanceID, MaxConnectionsPerList)
 	if err != nil {
 		return nil, err
@@ -310,12 +491,12 @@ func (s *InstanceConnectionStore) ListByInstance(ctx context.Context, instanceID
 // ListEnabledByInstance retrieves all enabled connections for an instance.
 func (s *InstanceConnectionStore) ListEnabledByInstance(ctx context.Context, instanceID int) ([]*InstanceConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, instance_id, protocol, host, port, username, private_key_path, enabled,
+		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, transfer_method, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at
 		FROM instance_connections
 		WHERE instance_id = ? AND enabled = 1
-		ORDER BY protocol
+		ORDER BY type
 		LIMIT ?`, instanceID, MaxConnectionsPerList)
 	if err != nil {
 		return nil, err
@@ -347,21 +528,6 @@ func (s *InstanceConnectionStore) UpdateCapabilities(ctx context.Context, id int
 	return err
 }
 
-// UpdateTransferMethod updates the user's preferred transfer method for a connection.
-func (s *InstanceConnectionStore) UpdateTransferMethod(ctx context.Context, id int64, method string) error {
-	if method != TransferMethodAuto && method != TransferMethodRsync && method != TransferMethodSFTP {
-		return errors.New("invalid transfer method: must be auto, rsync, or sftp")
-	}
-	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE instance_connections
-		SET transfer_method = ?, updated_at = ?
-		WHERE id = ?`,
-		method, now, id,
-	)
-	return err
-}
-
 // ConnectionCapabilities holds the detected capabilities for a connection.
 type ConnectionCapabilities struct {
 	RsyncAvailable     bool   `json:"rsyncAvailable"`
@@ -371,18 +537,56 @@ type ConnectionCapabilities struct {
 	ReflinksSupported  bool   `json:"reflinksSupported"`
 }
 
+// connectionScanFields holds the nullable fields for scanning a connection row.
+type connectionScanFields struct {
+	passwordEncrypted   sql.NullString
+	privateKeyPath      sql.NullString
+	rsyncVersion        sql.NullString
+	rsyncAvailable      sql.NullBool
+	sftpAvailable       sql.NullBool
+	hardlinksSupported  sql.NullBool
+	reflinksSupported   sql.NullBool
+	capabilitiesChecked sql.NullTime
+}
+
+// applyToConnection applies the scanned nullable fields to a connection.
+func (f *connectionScanFields) applyToConnection(c *InstanceConnection) {
+	if f.passwordEncrypted.Valid {
+		c.passwordEncrypted = f.passwordEncrypted.String
+	}
+	if f.privateKeyPath.Valid {
+		c.PrivateKeyPath = f.privateKeyPath.String
+	}
+	if f.rsyncAvailable.Valid {
+		c.RsyncAvailable = &f.rsyncAvailable.Bool
+	}
+	if f.rsyncVersion.Valid {
+		c.RsyncVersion = f.rsyncVersion.String
+	}
+	if f.sftpAvailable.Valid {
+		c.SFTPAvailable = &f.sftpAvailable.Bool
+	}
+	if f.hardlinksSupported.Valid {
+		c.HardlinksSupported = &f.hardlinksSupported.Bool
+	}
+	if f.reflinksSupported.Valid {
+		c.ReflinksSupported = &f.reflinksSupported.Bool
+	}
+	if f.capabilitiesChecked.Valid {
+		c.CapabilitiesChecked = &f.capabilitiesChecked.Time
+	}
+}
+
 // scanConnection scans a single row into an InstanceConnection.
 func (s *InstanceConnectionStore) scanConnection(row *sql.Row) (*InstanceConnection, error) {
 	var c InstanceConnection
-	var privateKeyPath, rsyncVersion, transferMethod sql.NullString
-	var rsyncAvailable, sftpAvailable, hardlinksSupported, reflinksSupported sql.NullBool
-	var capabilitiesChecked sql.NullTime
+	var f connectionScanFields
 
 	err := row.Scan(
-		&c.ID, &c.InstanceID, &c.Protocol, &c.Host, &c.Port,
-		&c.Username, &privateKeyPath, &c.Enabled,
-		&rsyncAvailable, &rsyncVersion, &sftpAvailable, &hardlinksSupported, &reflinksSupported,
-		&capabilitiesChecked, &transferMethod, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.InstanceID, &c.Type, &c.Host, &c.Port,
+		&c.Username, &f.passwordEncrypted, &f.privateKeyPath, &c.Enabled,
+		&f.rsyncAvailable, &f.rsyncVersion, &f.sftpAvailable, &f.hardlinksSupported, &f.reflinksSupported,
+		&f.capabilitiesChecked, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -391,33 +595,7 @@ func (s *InstanceConnectionStore) scanConnection(row *sql.Row) (*InstanceConnect
 		return nil, err
 	}
 
-	if privateKeyPath.Valid {
-		c.PrivateKeyPath = privateKeyPath.String
-	}
-	if rsyncAvailable.Valid {
-		c.RsyncAvailable = &rsyncAvailable.Bool
-	}
-	if rsyncVersion.Valid {
-		c.RsyncVersion = rsyncVersion.String
-	}
-	if sftpAvailable.Valid {
-		c.SFTPAvailable = &sftpAvailable.Bool
-	}
-	if hardlinksSupported.Valid {
-		c.HardlinksSupported = &hardlinksSupported.Bool
-	}
-	if reflinksSupported.Valid {
-		c.ReflinksSupported = &reflinksSupported.Bool
-	}
-	if capabilitiesChecked.Valid {
-		c.CapabilitiesChecked = &capabilitiesChecked.Time
-	}
-	if transferMethod.Valid {
-		c.TransferMethod = transferMethod.String
-	} else {
-		c.TransferMethod = TransferMethodAuto
-	}
-
+	f.applyToConnection(&c)
 	return &c, nil
 }
 
@@ -426,47 +604,19 @@ func (s *InstanceConnectionStore) scanConnections(rows *sql.Rows) ([]*InstanceCo
 	var connections []*InstanceConnection
 	for rows.Next() {
 		var c InstanceConnection
-		var privateKeyPath, rsyncVersion, transferMethod sql.NullString
-		var rsyncAvailable, sftpAvailable, hardlinksSupported, reflinksSupported sql.NullBool
-		var capabilitiesChecked sql.NullTime
+		var f connectionScanFields
 
 		err := rows.Scan(
-			&c.ID, &c.InstanceID, &c.Protocol, &c.Host, &c.Port,
-			&c.Username, &privateKeyPath, &c.Enabled,
-			&rsyncAvailable, &rsyncVersion, &sftpAvailable, &hardlinksSupported, &reflinksSupported,
-			&capabilitiesChecked, &transferMethod, &c.CreatedAt, &c.UpdatedAt,
+			&c.ID, &c.InstanceID, &c.Type, &c.Host, &c.Port,
+			&c.Username, &f.passwordEncrypted, &f.privateKeyPath, &c.Enabled,
+			&f.rsyncAvailable, &f.rsyncVersion, &f.sftpAvailable, &f.hardlinksSupported, &f.reflinksSupported,
+			&f.capabilitiesChecked, &c.CreatedAt, &c.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		if privateKeyPath.Valid {
-			c.PrivateKeyPath = privateKeyPath.String
-		}
-		if rsyncAvailable.Valid {
-			c.RsyncAvailable = &rsyncAvailable.Bool
-		}
-		if rsyncVersion.Valid {
-			c.RsyncVersion = rsyncVersion.String
-		}
-		if sftpAvailable.Valid {
-			c.SFTPAvailable = &sftpAvailable.Bool
-		}
-		if hardlinksSupported.Valid {
-			c.HardlinksSupported = &hardlinksSupported.Bool
-		}
-		if reflinksSupported.Valid {
-			c.ReflinksSupported = &reflinksSupported.Bool
-		}
-		if capabilitiesChecked.Valid {
-			c.CapabilitiesChecked = &capabilitiesChecked.Time
-		}
-		if transferMethod.Valid {
-			c.TransferMethod = transferMethod.String
-		} else {
-			c.TransferMethod = TransferMethodAuto
-		}
-
+		f.applyToConnection(&c)
 		connections = append(connections, &c)
 	}
 

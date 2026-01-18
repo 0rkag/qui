@@ -105,15 +105,12 @@ func ValidateRelPath(relPath string) error {
 	if filepath.IsAbs(relPath) {
 		return errors.New("relative path cannot be absolute")
 	}
-	// Clean the path and check for traversal
+	// Clean the path and check for traversal. After cleaning, if the path
+	// starts with ".." it means it would escape the base directory.
+	// Note: filepath.Clean resolves intermediate ".." (e.g., "a/b/../c" -> "a/c")
+	// but preserves leading ".." that would escape (e.g., "a/../.." -> "..").
 	cleaned := filepath.Clean(relPath)
-	// After cleaning, if it starts with ".." it would escape
 	if strings.HasPrefix(cleaned, "..") {
-		return errors.New("relative path contains traversal elements")
-	}
-	// Also reject if it contains ".." anywhere after cleaning
-	// (shouldn't happen after Clean, but be defensive)
-	if strings.Contains(cleaned, "..") {
 		return errors.New("relative path contains traversal elements")
 	}
 	return nil

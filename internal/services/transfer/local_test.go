@@ -107,7 +107,7 @@ func TestLocalExecutor_Prepare(t *testing.T) {
 			wantErr: ErrTorrentNotFound,
 		},
 		{
-			name:     "error - torrent incomplete",
+			name:     "error - no complete files",
 			transfer: newTestTransfer(),
 			setupMocks: func(sm *mockSyncManager, ip *mockInstanceProvider) {
 				ip.AddInstance(newTestInstance(1, withLocalAccess(true)))
@@ -120,8 +120,15 @@ func TestLocalExecutor_Prepare(t *testing.T) {
 						Progress: 0.5, // Only 50% complete
 					}}, nil
 				}
+				sm.getTorrentFilesFunc = func(ctx context.Context, instanceID int, hash string) (*qbt.TorrentFiles, error) {
+					files := qbt.TorrentFiles{{Name: "file1.mkv", Size: 1000, Progress: 0.5}} // File not complete
+					return &files, nil
+				}
+				sm.getTorrentPropsFunc = func(ctx context.Context, instanceID int, hash string) (*qbt.TorrentProperties, error) {
+					return &qbt.TorrentProperties{SavePath: "/data/downloads"}, nil
+				}
 			},
-			wantErr: errors.New("torrent is not complete"),
+			wantErr: errors.New("no complete files to transfer"),
 		},
 		{
 			name:     "error - get files fails",

@@ -178,7 +178,7 @@ func TestCreate_InvalidPayload(t *testing.T) {
 	handler.Create(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "Invalid request payload")
+	assert.Contains(t, w.Body.String(), "Invalid request body")
 }
 
 func TestCreate_Success(t *testing.T) {

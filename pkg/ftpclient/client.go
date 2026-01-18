@@ -12,6 +12,13 @@ import (
 	"github.com/jlaffaye/ftp"
 )
 
+// TLS mode for FTP connections
+const (
+	TLSModeNone     = "none"     // Plain FTP (no encryption)
+	TLSModeExplicit = "explicit" // FTP with AUTH TLS (explicit TLS on port 21)
+	TLSModeImplicit = "implicit" // FTPS (implicit TLS from start on port 990)
+)
+
 // Config holds FTP connection configuration.
 type Config struct {
 	Host     string
@@ -19,23 +26,19 @@ type Config struct {
 	Username string
 	Password string
 
-	// TLS settings
-	UseTLS        bool        // Enable FTPS (explicit TLS)
-	TLSConfig     *tls.Config // Custom TLS config (optional)
-	TLSSkipVerify bool        // Skip TLS certificate verification
+	// TLS mode: "none", "explicit", or "implicit"
+	TLSMode string // Default: "explicit"
 
 	// Connection settings
-	Timeout     time.Duration // Connection timeout (default 30s)
-	PassiveMode bool          // Use passive mode (default true, recommended)
+	Timeout time.Duration // Connection timeout (default 30s)
 }
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		Port:        21,
-		Timeout:     30 * time.Second,
-		PassiveMode: true,
-		UseTLS:      true, // Default to secure
+		Port:    21,
+		Timeout: 30 * time.Second,
+		TLSMode: TLSModeExplicit, // Default to explicit TLS
 	}
 }
 
@@ -54,10 +57,19 @@ func New(cfg *Config) (*Client, error) {
 		return nil, fmt.Errorf("host is required")
 	}
 	if cfg.Port == 0 {
-		cfg.Port = 21
+		// Set default port based on TLS mode
+		switch cfg.TLSMode {
+		case TLSModeImplicit:
+			cfg.Port = 990
+		default:
+			cfg.Port = 21
+		}
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second
+	}
+	if cfg.TLSMode == "" {
+		cfg.TLSMode = TLSModeExplicit // Default to explicit TLS
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
@@ -66,21 +78,25 @@ func New(cfg *Config) (*Client, error) {
 	var opts []ftp.DialOption
 	opts = append(opts, ftp.DialWithTimeout(cfg.Timeout))
 
-	// TLS configuration
-	if cfg.UseTLS {
-		tlsConfig := cfg.TLSConfig
-		if tlsConfig == nil {
-			tlsConfig = &tls.Config{
-				MinVersion:         tls.VersionTLS12,
-				InsecureSkipVerify: cfg.TLSSkipVerify,
-				ServerName:         cfg.Host,
-			}
-		}
-		opts = append(opts, ftp.DialWithExplicitTLS(tlsConfig))
+	// TLS configuration - always skip verify for simplicity
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true, // Always skip verify
+		ServerName:         cfg.Host,
 	}
 
-	// Passive mode is handled per-transfer, not at dial time
-	// The library uses passive mode by default for Stor/Retr
+	switch cfg.TLSMode {
+	case TLSModeExplicit:
+		opts = append(opts, ftp.DialWithExplicitTLS(tlsConfig))
+	case TLSModeImplicit:
+		opts = append(opts, ftp.DialWithTLS(tlsConfig))
+	case TLSModeNone:
+		// No TLS
+	default:
+		return nil, fmt.Errorf("invalid TLS mode: %s", cfg.TLSMode)
+	}
+
+	// Library uses passive mode by default for transfers
 
 	// Connect
 	conn, err := ftp.Dial(addr, opts...)
@@ -147,7 +163,7 @@ type Capabilities struct {
 // CheckCapabilities detects FTP server capabilities.
 func (c *Client) CheckCapabilities() (*Capabilities, error) {
 	caps := &Capabilities{
-		TLSEnabled: c.config.UseTLS,
+		TLSEnabled: c.config.TLSMode != TLSModeNone,
 	}
 
 	// Test passive mode with a simple LIST

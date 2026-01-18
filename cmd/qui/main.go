@@ -588,7 +588,10 @@ func (app *Application) runServer() {
 	instancePathMappingStore := models.NewInstancePathMappingStore(db)
 
 	// Initialize instance connection store for SSH/remote access
-	instanceConnectionStore := models.NewInstanceConnectionStore(db)
+	instanceConnectionStore, err := models.NewInstanceConnectionStore(db, cfg.GetEncryptionKey())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize instance connection store")
+	}
 
 	// Initialize transfer service for moving torrents between instances
 	transferStore := models.NewTransferStore(db)

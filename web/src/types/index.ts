@@ -196,52 +196,91 @@ export interface PathTestResponse {
   noMatchFound: boolean
 }
 
-// Instance connection types (SSH/remote access)
-export type ConnectionProtocol = "ssh" | "sftp" | "ftp"
+// Instance connection types (unified SSH and FTP)
+export type ConnectionType =
+  | "ssh_auto"     // SSH with automatic transfer method selection
+  | "ssh_rsync"    // SSH using rsync for transfers
+  | "ssh_sftp"     // SSH using SFTP for transfers
+  | "ssh_scp"      // SSH using SCP for transfers
+  | "ftp_explicit" // FTP with explicit TLS (AUTH TLS on port 21)
+  | "ftp_implicit" // FTP with implicit TLS (TLS from start on port 990)
+  | "ftp_plain"    // Plain FTP without encryption
+
+// Helper to check if connection type is SSH-based
+export function isSSHType(type: ConnectionType): boolean {
+  return type.startsWith("ssh_")
+}
+
+// Helper to check if connection type is FTP-based
+export function isFTPType(type: ConnectionType): boolean {
+  return type.startsWith("ftp_")
+}
 
 export interface InstanceConnection {
   id: number
   instanceId: number
-  protocol: ConnectionProtocol
+  type: ConnectionType
   host: string
   port: number
   username: string
-  privateKeyPath?: string
+  password?: string        // Password auth (not returned from API, but used for create/update)
+  privateKeyPath?: string  // SSH types only
   enabled: boolean
   createdAt: string
   updatedAt: string
 }
 
 export interface InstanceConnectionCreate {
-  protocol: ConnectionProtocol
+  type: ConnectionType
   host: string
   port?: number
   username: string
-  privateKeyPath?: string
+  password?: string        // Password auth (stored encrypted)
+  privateKeyPath?: string  // SSH types only
   enabled?: boolean
 }
 
 export interface InstanceConnectionUpdate {
+  type?: ConnectionType    // Can change connection type
   host: string
   port: number
   username: string
-  privateKeyPath?: string
+  password?: string        // Password auth (stored encrypted)
+  privateKeyPath?: string  // SSH types only
   enabled?: boolean
 }
 
-export interface SSHTestRequest {
-  protocol: ConnectionProtocol
+export interface ConnectionTestRequest {
+  type: ConnectionType
   host: string
   port?: number
   username: string
+  password?: string
   privateKeyPath?: string
 }
 
-export interface SSHTestResult {
+export interface ConnectionTestResult {
   success: boolean
   message: string
   details?: string
+  sshCapabilities?: {
+    hasRsync: boolean
+    hasSftp: boolean
+    hasScp: boolean
+    canHardlink: boolean
+    canReflink: boolean
+  }
+  ftpCapabilities?: {
+    tlsEnabled: boolean
+    passiveModeWorks: boolean
+    fxpSupported: boolean
+    serverType?: string
+    features?: string[]
+  }
 }
+
+// Legacy alias for backwards compatibility
+export type ConnectionProtocol = ConnectionType
 
 // Condition field types for expression-based automations
 export type ConditionField =

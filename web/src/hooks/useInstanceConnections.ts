@@ -5,12 +5,14 @@
 
 import { api } from "@/lib/api"
 import type {
+  ConnectionType,
   InstanceConnection,
   InstanceConnectionCreate,
   InstanceConnectionUpdate,
-  SSHTestRequest,
-  SSHTestResult,
+  ConnectionTestRequest,
+  ConnectionTestResult,
 } from "@/types"
+import { isSSHType, isFTPType } from "@/types"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -68,27 +70,47 @@ export function useInstanceConnections(instanceId: number) {
   })
 
   const testMutation = useMutation({
-    mutationFn: (data: SSHTestRequest) => api.testSSHConnection(instanceId, data),
+    mutationFn: (data: ConnectionTestRequest) => api.testRemoteConnection(instanceId, data),
     onError: (error: Error) => {
       toast.error("Failed to test connection", { description: error.message })
     },
   })
 
   const testExistingMutation = useMutation({
-    mutationFn: (connectionId: number) => api.testSSHConnectionExisting(instanceId, connectionId),
+    mutationFn: (connectionId: number) => api.testRemoteConnectionExisting(instanceId, connectionId),
     onError: (error: Error) => {
       toast.error("Failed to test connection", { description: error.message })
     },
   })
 
-  // Helper to get connection by protocol
-  const getConnectionByProtocol = (protocol: "ssh" | "sftp" | "ftp"): InstanceConnection | undefined => {
-    return connections?.find((c) => c.protocol === protocol)
+  // Helper to get connection by type
+  const getConnectionByType = (type: ConnectionType): InstanceConnection | undefined => {
+    return connections?.find((c) => c.type === type)
   }
 
-  // Helper to check if a protocol is configured
-  const hasProtocol = (protocol: "ssh" | "sftp" | "ftp"): boolean => {
-    return connections?.some((c) => c.protocol === protocol) ?? false
+  // Helper to check if a type is configured
+  const hasType = (type: ConnectionType): boolean => {
+    return connections?.some((c) => c.type === type) ?? false
+  }
+
+  // Helper to get any SSH connection
+  const getSSHConnection = (): InstanceConnection | undefined => {
+    return connections?.find((c) => isSSHType(c.type))
+  }
+
+  // Helper to get any FTP connection
+  const getFTPConnection = (): InstanceConnection | undefined => {
+    return connections?.find((c) => isFTPType(c.type))
+  }
+
+  // Helper to check if any SSH is configured
+  const hasSSH = (): boolean => {
+    return connections?.some((c) => isSSHType(c.type)) ?? false
+  }
+
+  // Helper to check if any FTP is configured
+  const hasFTP = (): boolean => {
+    return connections?.some((c) => isFTPType(c.type)) ?? false
   }
 
   return {
@@ -110,13 +132,16 @@ export function useInstanceConnections(instanceId: number) {
     isUpdating: updateMutation.isPending,
     isDeleting: deleteMutation.isPending,
     isTesting: testMutation.isPending || testExistingMutation.isPending,
-    testResult: (testMutation.data ?? testExistingMutation.data) as SSHTestResult | undefined,
+    testResult: (testMutation.data ?? testExistingMutation.data) as ConnectionTestResult | undefined,
     // Helper functions
-    getConnectionByProtocol,
-    hasProtocol,
-    // Convenience getters
-    sshConnection: getConnectionByProtocol("ssh"),
-    sftpConnection: getConnectionByProtocol("sftp"),
-    ftpConnection: getConnectionByProtocol("ftp"),
+    getConnectionByType,
+    hasType,
+    getSSHConnection,
+    getFTPConnection,
+    hasSSH,
+    hasFTP,
+    // Convenience getters (for common types)
+    sshConnection: getSSHConnection(),
+    ftpConnection: getFTPConnection(),
   }
 }
