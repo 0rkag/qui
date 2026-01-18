@@ -340,9 +340,7 @@ func TestSSHExecutor_determineLinkMode(t *testing.T) {
 	}
 }
 
-func TestSSHExecutor_computeTargetPath(t *testing.T) {
-	executor := &SSHExecutor{}
-
+func TestComputeTargetPathCommon_SSH(t *testing.T) {
 	tests := []struct {
 		name           string
 		sourcePath     string
@@ -389,7 +387,7 @@ func TestSSHExecutor_computeTargetPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := executor.computeTargetPath(tt.sourcePath, tt.targetInstance, tt.mappings)
+			result := computeTargetPathCommon(tt.sourcePath, tt.targetInstance, tt.mappings)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

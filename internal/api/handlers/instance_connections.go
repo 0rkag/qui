@@ -4,6 +4,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -66,6 +67,150 @@ func sanitizeFTPError(err error) string {
 
 // maxRequestBodySize limits request body size to prevent memory exhaustion attacks.
 const maxRequestBodySize = 1 << 20 // 1 MB
+
+// sshTestParams holds parameters for SSH connection testing.
+type sshTestParams struct {
+	Host           string
+	Port           int
+	Username       string
+	Password       string
+	PrivateKeyPath string
+}
+
+// doSSHConnectionTest performs SSH connection test and returns the result.
+func doSSHConnectionTest(ctx context.Context, params sshTestParams) ConnectionTestResult {
+	// Validate private key path if provided
+	if params.PrivateKeyPath != "" {
+		if err := sshclient.ValidatePath(params.PrivateKeyPath); err != nil {
+			return ConnectionTestResult{
+				Success: false,
+				Message: "Invalid private key path: " + err.Error(),
+			}
+		}
+	}
+
+	cfg := &sshclient.Config{
+		Host:           params.Host,
+		Port:           params.Port,
+		Username:       params.Username,
+		Password:       params.Password,
+		PrivateKeyPath: params.PrivateKeyPath,
+	}
+
+	client, err := sshclient.New(cfg)
+	if err != nil {
+		log.Debug().Err(err).Str("host", params.Host).Msg("connections: SSH test failed")
+		return ConnectionTestResult{
+			Success: false,
+			Message: sanitizeSSHError(err),
+		}
+	}
+	defer client.Close()
+
+	_, err = client.Exec(ctx, "echo 'Connection successful'")
+	if err != nil {
+		log.Debug().Err(err).Str("host", params.Host).Msg("connections: SSH command execution failed")
+		return ConnectionTestResult{
+			Success: false,
+			Message: "Connection established but command execution failed",
+		}
+	}
+
+	caps, err := client.CheckCapabilities(ctx)
+	if err != nil {
+		log.Warn().Err(err).Str("host", params.Host).Msg("connections: failed to check SSH capabilities")
+		return ConnectionTestResult{
+			Success: true,
+			Message: "Connection successful (capability detection failed)",
+		}
+	}
+
+	message := "Connection successful"
+	if caps.RsyncAvailable {
+		message += " • rsync available"
+	} else {
+		message += " • rsync not found (will use SFTP)"
+	}
+
+	return ConnectionTestResult{
+		Success:         true,
+		Message:         message,
+		SSHCapabilities: caps,
+	}
+}
+
+// ftpTestParams holds parameters for FTP connection testing.
+type ftpTestParams struct {
+	Host           string
+	Port           int
+	Username       string
+	Password       string
+	ConnectionType string // ssh_auto, ftp_explicit, etc.
+}
+
+// doFTPConnectionTest performs FTP connection test and returns the result.
+func doFTPConnectionTest(params ftpTestParams) ConnectionTestResult {
+	if params.Password == "" {
+		return ConnectionTestResult{
+			Success: false,
+			Message: "Password is required for FTP connections",
+		}
+	}
+
+	// Determine TLS mode from connection type
+	var tlsMode string
+	switch params.ConnectionType {
+	case models.ConnectionTypeFTPExplicit:
+		tlsMode = ftpclient.TLSModeExplicit
+	case models.ConnectionTypeFTPImplicit:
+		tlsMode = ftpclient.TLSModeImplicit
+	case models.ConnectionTypeFTPPlain:
+		tlsMode = ftpclient.TLSModeNone
+	default:
+		tlsMode = ftpclient.TLSModeExplicit
+	}
+
+	cfg := &ftpclient.Config{
+		Host:     params.Host,
+		Port:     params.Port,
+		Username: params.Username,
+		Password: params.Password,
+		TLSMode:  tlsMode,
+	}
+
+	client, err := ftpclient.New(cfg)
+	if err != nil {
+		log.Debug().Err(err).Str("host", params.Host).Msg("connections: FTP test failed")
+		return ConnectionTestResult{
+			Success: false,
+			Message: sanitizeFTPError(err),
+		}
+	}
+	defer client.Close()
+
+	caps, err := client.CheckCapabilities()
+	if err != nil {
+		log.Warn().Err(err).Str("host", params.Host).Msg("connections: FTP capability check failed")
+		return ConnectionTestResult{
+			Success: true,
+			Message: "Connection successful (capability detection failed)",
+		}
+	}
+
+	message := "Connection successful"
+	if caps.TLSEnabled {
+		message += " • TLS enabled"
+	}
+	if caps.PassiveModeWorks {
+		message += " • Passive mode working"
+	}
+
+	return ConnectionTestResult{
+		Success:         true,
+		Message:         message,
+		FTPCapabilities: caps,
+	}
+}
 
 // InstanceConnectionsHandler handles instance connection API endpoints.
 type InstanceConnectionsHandler struct {
@@ -411,136 +556,26 @@ func (h *InstanceConnectionsHandler) Test(w http.ResponseWriter, r *http.Request
 
 // testSSHConnection tests an SSH connection.
 func (h *InstanceConnectionsHandler) testSSHConnection(w http.ResponseWriter, r *http.Request, payload TestConnectionPayload, port int) {
-	// Validate private key path if provided
-	if payload.PrivateKeyPath != "" {
-		if err := sshclient.ValidatePath(payload.PrivateKeyPath); err != nil {
-			RespondJSON(w, http.StatusOK, ConnectionTestResult{
-				Success: false,
-				Message: "Invalid private key path: " + err.Error(),
-			})
-			return
-		}
-	}
-
-	cfg := &sshclient.Config{
+	result := doSSHConnectionTest(r.Context(), sshTestParams{
 		Host:           payload.Host,
 		Port:           port,
 		Username:       payload.Username,
 		Password:       payload.Password,
 		PrivateKeyPath: payload.PrivateKeyPath,
-	}
-
-	client, err := sshclient.New(cfg)
-	if err != nil {
-		log.Debug().Err(err).Str("host", payload.Host).Msg("connections: SSH test failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: sanitizeSSHError(err),
-		})
-		return
-	}
-	defer client.Close()
-
-	ctx := r.Context()
-	_, err = client.Exec(ctx, "echo 'Connection successful'")
-	if err != nil {
-		log.Debug().Err(err).Str("host", payload.Host).Msg("connections: SSH command execution failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: "Connection established but command execution failed",
-		})
-		return
-	}
-
-	caps, err := client.CheckCapabilities(ctx)
-	if err != nil {
-		log.Warn().Err(err).Str("host", payload.Host).Msg("connections: failed to check SSH capabilities")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: true,
-			Message: "Connection successful (capability detection failed)",
-		})
-		return
-	}
-
-	message := "Connection successful"
-	if caps.RsyncAvailable {
-		message += " • rsync available"
-	} else {
-		message += " • rsync not found (will use SFTP)"
-	}
-
-	RespondJSON(w, http.StatusOK, ConnectionTestResult{
-		Success:         true,
-		Message:         message,
-		SSHCapabilities: caps,
 	})
+	RespondJSON(w, http.StatusOK, result)
 }
 
 // testFTPConnection tests an FTP connection.
-func (h *InstanceConnectionsHandler) testFTPConnection(w http.ResponseWriter, r *http.Request, payload TestConnectionPayload, port int) {
-	if payload.Password == "" {
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: "Password is required for FTP connections",
-		})
-		return
-	}
-
-	// Determine TLS mode from connection type
-	var tlsMode string
-	switch payload.Type {
-	case models.ConnectionTypeFTPExplicit:
-		tlsMode = ftpclient.TLSModeExplicit
-	case models.ConnectionTypeFTPImplicit:
-		tlsMode = ftpclient.TLSModeImplicit
-	case models.ConnectionTypeFTPPlain:
-		tlsMode = ftpclient.TLSModeNone
-	default:
-		tlsMode = ftpclient.TLSModeExplicit
-	}
-
-	cfg := &ftpclient.Config{
-		Host:     payload.Host,
-		Port:     port,
-		Username: payload.Username,
-		Password: payload.Password,
-		TLSMode:  tlsMode,
-	}
-
-	client, err := ftpclient.New(cfg)
-	if err != nil {
-		log.Debug().Err(err).Str("host", payload.Host).Msg("connections: FTP test failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: sanitizeFTPError(err),
-		})
-		return
-	}
-	defer client.Close()
-
-	caps, err := client.CheckCapabilities()
-	if err != nil {
-		log.Warn().Err(err).Str("host", payload.Host).Msg("connections: FTP capability check failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: true,
-			Message: "Connection successful (capability detection failed)",
-		})
-		return
-	}
-
-	message := "Connection successful"
-	if caps.TLSEnabled {
-		message += " • TLS enabled"
-	}
-	if caps.PassiveModeWorks {
-		message += " • Passive mode working"
-	}
-
-	RespondJSON(w, http.StatusOK, ConnectionTestResult{
-		Success:         true,
-		Message:         message,
-		FTPCapabilities: caps,
+func (h *InstanceConnectionsHandler) testFTPConnection(w http.ResponseWriter, _ *http.Request, payload TestConnectionPayload, port int) {
+	result := doFTPConnectionTest(ftpTestParams{
+		Host:           payload.Host,
+		Port:           port,
+		Username:       payload.Username,
+		Password:       payload.Password,
+		ConnectionType: payload.Type,
 	})
+	RespondJSON(w, http.StatusOK, result)
 }
 
 // TestExisting handles POST /api/instances/{instanceID}/connections/{id}/test
@@ -594,74 +629,34 @@ func (h *InstanceConnectionsHandler) testExistingSSH(w http.ResponseWriter, r *h
 		password = ""
 	}
 
-	cfg := &sshclient.Config{
+	ctx := r.Context()
+	result := doSSHConnectionTest(ctx, sshTestParams{
 		Host:           conn.Host,
 		Port:           conn.Port,
 		Username:       conn.Username,
 		Password:       password,
 		PrivateKeyPath: conn.PrivateKeyPath,
-	}
-
-	client, err := sshclient.New(cfg)
-	if err != nil {
-		log.Debug().Err(err).Str("host", conn.Host).Int64("connID", conn.ID).Msg("connections: SSH test failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: sanitizeSSHError(err),
-		})
-		return
-	}
-	defer client.Close()
-
-	ctx := r.Context()
-	_, err = client.Exec(ctx, "echo 'Connection successful'")
-	if err != nil {
-		log.Debug().Err(err).Str("host", conn.Host).Int64("connID", conn.ID).Msg("connections: SSH command execution failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: "Connection established but command execution failed",
-		})
-		return
-	}
-
-	caps, err := client.CheckCapabilities(ctx)
-	if err != nil {
-		log.Warn().Err(err).Str("host", conn.Host).Int64("connID", conn.ID).Msg("connections: failed to check SSH capabilities")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: true,
-			Message: "Connection successful (capability detection failed)",
-		})
-		return
-	}
-
-	// Save capabilities to database
-	dbCaps := &models.ConnectionCapabilities{
-		RsyncAvailable:     caps.RsyncAvailable,
-		RsyncVersion:       caps.RsyncVersion,
-		SFTPAvailable:      caps.SFTPAvailable,
-		HardlinksSupported: caps.HardlinksSupported,
-		ReflinksSupported:  caps.ReflinksSupported,
-	}
-	if err := h.store.UpdateCapabilities(ctx, conn.ID, dbCaps); err != nil {
-		log.Warn().Err(err).Int64("connID", conn.ID).Msg("connections: failed to save capabilities")
-	}
-
-	message := "Connection successful"
-	if caps.RsyncAvailable {
-		message += " • rsync available"
-	} else {
-		message += " • rsync not found (will use SFTP)"
-	}
-
-	RespondJSON(w, http.StatusOK, ConnectionTestResult{
-		Success:         true,
-		Message:         message,
-		SSHCapabilities: caps,
 	})
+
+	// Save capabilities to database if test was successful and we got caps
+	if result.Success && result.SSHCapabilities != nil {
+		dbCaps := &models.ConnectionCapabilities{
+			RsyncAvailable:     result.SSHCapabilities.RsyncAvailable,
+			RsyncVersion:       result.SSHCapabilities.RsyncVersion,
+			SFTPAvailable:      result.SSHCapabilities.SFTPAvailable,
+			HardlinksSupported: result.SSHCapabilities.HardlinksSupported,
+			ReflinksSupported:  result.SSHCapabilities.ReflinksSupported,
+		}
+		if err := h.store.UpdateCapabilities(ctx, conn.ID, dbCaps); err != nil {
+			log.Warn().Err(err).Int64("connID", conn.ID).Msg("connections: failed to save capabilities")
+		}
+	}
+
+	RespondJSON(w, http.StatusOK, result)
 }
 
 // testExistingFTP tests an existing FTP connection.
-func (h *InstanceConnectionsHandler) testExistingFTP(w http.ResponseWriter, r *http.Request, conn *models.InstanceConnection) {
+func (h *InstanceConnectionsHandler) testExistingFTP(w http.ResponseWriter, _ *http.Request, conn *models.InstanceConnection) {
 	password, err := h.store.GetDecryptedPassword(conn)
 	if err != nil {
 		log.Error().Err(err).Int64("connID", conn.ID).Msg("connections: failed to decrypt password")
@@ -672,58 +667,12 @@ func (h *InstanceConnectionsHandler) testExistingFTP(w http.ResponseWriter, r *h
 		return
 	}
 
-	var tlsMode string
-	switch conn.Type {
-	case models.ConnectionTypeFTPExplicit:
-		tlsMode = ftpclient.TLSModeExplicit
-	case models.ConnectionTypeFTPImplicit:
-		tlsMode = ftpclient.TLSModeImplicit
-	case models.ConnectionTypeFTPPlain:
-		tlsMode = ftpclient.TLSModeNone
-	default:
-		tlsMode = ftpclient.TLSModeExplicit
-	}
-
-	cfg := &ftpclient.Config{
-		Host:     conn.Host,
-		Port:     conn.Port,
-		Username: conn.Username,
-		Password: password,
-		TLSMode:  tlsMode,
-	}
-
-	client, err := ftpclient.New(cfg)
-	if err != nil {
-		log.Debug().Err(err).Str("host", conn.Host).Int64("connID", conn.ID).Msg("connections: FTP test failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: false,
-			Message: sanitizeFTPError(err),
-		})
-		return
-	}
-	defer client.Close()
-
-	caps, err := client.CheckCapabilities()
-	if err != nil {
-		log.Warn().Err(err).Str("host", conn.Host).Int64("connID", conn.ID).Msg("connections: FTP capability check failed")
-		RespondJSON(w, http.StatusOK, ConnectionTestResult{
-			Success: true,
-			Message: "Connection successful (capability detection failed)",
-		})
-		return
-	}
-
-	message := "Connection successful"
-	if caps.TLSEnabled {
-		message += " • TLS enabled"
-	}
-	if caps.PassiveModeWorks {
-		message += " • Passive mode working"
-	}
-
-	RespondJSON(w, http.StatusOK, ConnectionTestResult{
-		Success:         true,
-		Message:         message,
-		FTPCapabilities: caps,
+	result := doFTPConnectionTest(ftpTestParams{
+		Host:           conn.Host,
+		Port:           conn.Port,
+		Username:       conn.Username,
+		Password:       password,
+		ConnectionType: conn.Type,
 	})
+	RespondJSON(w, http.StatusOK, result)
 }

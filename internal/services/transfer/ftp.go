@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 
-	qbt "github.com/autobrr/go-qbittorrent"
 	"github.com/rs/zerolog/log"
 
 	"github.com/autobrr/qui/internal/models"
@@ -67,94 +65,33 @@ func (e *FTPExecutor) CanHandle(source, target *models.Instance) bool {
 
 // Prepare validates the transfer and gathers source information.
 func (e *FTPExecutor) Prepare(ctx context.Context, t *models.Transfer) (*PrepareResult, error) {
-	sourceInstance, err := e.instanceStore.Get(ctx, t.SourceInstanceID)
+	const logPrefix = "[TRANSFER-FTP]"
+
+	// 1. Run common preparation (get instances, torrent, files, validate)
+	common, err := prepareCommon(ctx, t, e.syncManager, e.instanceStore, PrepareConfig{
+		LogPrefix:          logPrefix,
+		RequireLocalSource: false, // FTP executor doesn't require local access
+		RequireLocalTarget: false,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get source instance: %w", err)
+		return nil, err
 	}
 
-	targetInstance, err := e.instanceStore.Get(ctx, t.TargetInstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get target instance: %w", err)
-	}
+	// 2. Compute target save path
+	targetSavePath := resolveTargetPath(
+		ctx,
+		common.Properties.SavePath,
+		t.SourceInstanceID,
+		t.TargetInstanceID,
+		common.TargetInstance,
+		e.pathResolver,
+		t.PathMappings,
+		logPrefix,
+	)
 
-	torrents, err := e.syncManager.GetTorrents(ctx, t.SourceInstanceID,
-		qbt.TorrentFilterOptions{Hashes: []string{t.TorrentHash}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source torrent: %w", err)
-	}
-	if len(torrents) == 0 {
-		return nil, ErrTorrentNotFound
-	}
-	sourceTorrent := torrents[0]
-
-	files, err := e.syncManager.GetTorrentFiles(ctx, t.SourceInstanceID, t.TorrentHash)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source files: %w", err)
-	}
-
-	// Build result early so TorrentName is available even on error
-	result := &PrepareResult{
-		TorrentName:    sourceTorrent.Name,
-		SourceSavePath: sourceTorrent.SavePath,
-		SourceInstance: sourceInstance,
-		TargetInstance: targetInstance,
-	}
-
-	// Build file list - only include complete files (consistent with SSH/Local executors)
-	result.Files = make([]TorrentFile, 0, len(*files))
-	var skippedFiles int
-	for _, f := range *files {
-		// Skip files that are not fully downloaded
-		if f.Progress < 1.0 {
-			skippedFiles++
-			log.Debug().
-				Str("file", f.Name).
-				Float64("progress", float64(f.Progress)).
-				Msg("[TRANSFER-FTP] Skipping incomplete file")
-			continue
-		}
-		// Validate relative path to prevent path traversal
-		if err := ValidateRelPath(f.Name); err != nil {
-			return nil, fmt.Errorf("unsafe file path in torrent %q: %w", f.Name, err)
-		}
-		result.Files = append(result.Files, TorrentFile{
-			RelPath: f.Name,
-			AbsPath: filepath.Join(sourceTorrent.SavePath, f.Name),
-			Size:    f.Size,
-		})
-	}
-
-	if len(result.Files) == 0 {
-		return result, fmt.Errorf("no complete files to transfer (torrent is %.1f%% complete)", sourceTorrent.Progress*100)
-	}
-
-	// Log if we're doing a partial transfer
-	if skippedFiles > 0 {
-		log.Info().
-			Int("completeFiles", len(result.Files)).
-			Int("skippedFiles", skippedFiles).
-			Float64("torrentProgress", sourceTorrent.Progress*100).
-			Msg("[TRANSFER-FTP] Partial transfer - only transferring complete files")
-	}
-
-	// Compute target save path using path resolver
-	if e.pathResolver != nil {
-		resolvedPath, err := e.pathResolver.ResolveTargetPath(
-			ctx,
-			sourceTorrent.SavePath,
-			t.SourceInstanceID,
-			t.TargetInstanceID,
-			t.PathMappings,
-		)
-		if err != nil {
-			log.Warn().Err(err).Msg("ftp: path resolution failed, using source path")
-			result.TargetSavePath = sourceTorrent.SavePath
-		} else {
-			result.TargetSavePath = resolvedPath
-		}
-	} else {
-		result.TargetSavePath = sourceTorrent.SavePath
-	}
+	// 3. FTP always uses "transfer" mode - no torrent export needed for FTP
+	// since we add torrent via API, not via .torrent file transfer
+	result := buildPrepareResult(common, targetSavePath, "transfer", nil)
 
 	log.Info().
 		Int64("id", t.ID).

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	qbt "github.com/autobrr/go-qbittorrent"
 	"github.com/rs/zerolog/log"
 
 	"github.com/autobrr/qui/internal/models"
@@ -58,131 +57,41 @@ func (e *SSHExecutor) CanHandle(source, target *models.Instance) bool {
 
 // Prepare validates the transfer and gathers source information.
 func (e *SSHExecutor) Prepare(ctx context.Context, t *models.Transfer) (*PrepareResult, error) {
-	// 1. Get instances
-	sourceInstance, err := e.instanceStore.Get(ctx, t.SourceInstanceID)
+	const logPrefix = "[TRANSFER-SSH]"
+
+	// 1. Run common preparation (get instances, torrent, files, validate)
+	common, err := prepareCommon(ctx, t, e.syncManager, e.instanceStore, PrepareConfig{
+		LogPrefix:          logPrefix,
+		RequireLocalSource: false, // SSH executor doesn't require local access
+		RequireLocalTarget: false,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get source instance: %w", err)
+		return nil, err
 	}
 
-	targetInstance, err := e.instanceStore.Get(ctx, t.TargetInstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get target instance: %w", err)
-	}
+	// 2. Compute target save path
+	targetSavePath := resolveTargetPath(
+		ctx,
+		common.Properties.SavePath,
+		t.SourceInstanceID,
+		t.TargetInstanceID,
+		common.TargetInstance,
+		e.pathResolver,
+		t.PathMappings,
+		logPrefix,
+	)
 
-	// 2. Get source torrent info (via qBittorrent API, not SSH)
-	torrents, err := e.syncManager.GetTorrents(ctx, t.SourceInstanceID,
-		qbt.TorrentFilterOptions{Hashes: []string{t.TorrentHash}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source torrent: %w", err)
-	}
-	if len(torrents) == 0 {
-		return nil, ErrTorrentNotFound
-	}
-	sourceTorrent := torrents[0]
+	// 3. Determine link mode for remote transfers
+	linkMode := e.determineLinkMode(common.SourceInstance, common.TargetInstance)
 
-	// 3. Get source files
-	files, err := e.syncManager.GetTorrentFiles(ctx, t.SourceInstanceID, t.TorrentHash)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source files: %w", err)
-	}
-
-	// 4. Get properties (save path)
-	props, err := e.syncManager.GetTorrentProperties(ctx, t.SourceInstanceID, t.TorrentHash)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source properties: %w", err)
-	}
-
-	// 5. Build result early so that TorrentName is available even if we fail later
-	result := &PrepareResult{
-		TorrentName:    sourceTorrent.Name,
-		SourceSavePath: props.SavePath,
-		SourceInstance: sourceInstance,
-		TargetInstance: targetInstance,
-	}
-
-	// 6. Build file list with path validation - only include complete files
-	result.Files = make([]TorrentFile, 0, len(*files))
-	var skippedFiles int
-	for _, f := range *files {
-		// Skip files that are not fully downloaded
-		if f.Progress < 1.0 {
-			skippedFiles++
-			log.Debug().
-				Str("file", f.Name).
-				Float64("progress", float64(f.Progress)).
-				Msg("[TRANSFER-SSH] Skipping incomplete file")
-			continue
-		}
-
-		// Validate relative path to prevent path traversal attacks
-		if err := ValidateRelPath(f.Name); err != nil {
-			return nil, fmt.Errorf("unsafe file path in torrent %q: %w", f.Name, err)
-		}
-		result.Files = append(result.Files, TorrentFile{
-			RelPath: f.Name,
-			AbsPath: filepath.Join(props.SavePath, f.Name),
-			Size:    f.Size,
-		})
-	}
-
-	// 7. Fail if no files are complete
-	if len(result.Files) == 0 {
-		return result, fmt.Errorf("no complete files to transfer (torrent is %.1f%% complete)", sourceTorrent.Progress*100)
-	}
-
-	// Log if we're doing a partial transfer
-	if skippedFiles > 0 {
-		log.Info().
-			Int("completeFiles", len(result.Files)).
-			Int("skippedFiles", skippedFiles).
-			Float64("torrentProgress", sourceTorrent.Progress*100).
-			Msg("[TRANSFER-SSH] Partial transfer - only transferring complete files")
-	}
-
-	// 8. Extract category and tags
-	if t.PreserveCategory {
-		result.Category = sourceTorrent.Category
-	}
-	if t.PreserveTags && sourceTorrent.Tags != "" {
-		tags := strings.Split(sourceTorrent.Tags, ",")
-		for i := range tags {
-			tags[i] = strings.TrimSpace(tags[i])
-		}
-		result.Tags = tags
-	}
-
-	// 9. Compute target save path
-	if e.pathResolver != nil {
-		resolvedPath, err := e.pathResolver.ResolveTargetPath(
-			ctx,
-			props.SavePath,
-			t.SourceInstanceID,
-			t.TargetInstanceID,
-			t.PathMappings,
-		)
-		if err != nil {
-			log.Warn().Err(err).Msg("[TRANSFER-SSH] Path resolution failed, using source path")
-			result.TargetSavePath = props.SavePath
-		} else {
-			result.TargetSavePath = resolvedPath
-			// If no mapping matched and HardlinkBaseDir is set, use it
-			if resolvedPath == props.SavePath && targetInstance.HardlinkBaseDir != "" {
-				result.TargetSavePath = targetInstance.HardlinkBaseDir
-			}
-		}
-	} else {
-		result.TargetSavePath = e.computeTargetPath(props.SavePath, targetInstance, t.PathMappings)
-	}
-
-	// 10. Determine link mode for remote transfers
-	result.LinkMode = e.determineLinkMode(sourceInstance, targetInstance)
-
-	// 11. Export torrent for later use
+	// 4. Export torrent for later use
 	torrentBytes, _, _, err := e.syncManager.ExportTorrent(ctx, t.SourceInstanceID, t.TorrentHash)
 	if err != nil {
 		return nil, fmt.Errorf("failed to export torrent: %w", err)
 	}
-	result.TorrentData = torrentBytes
+
+	// 5. Build final result
+	result := buildPrepareResult(common, targetSavePath, linkMode, torrentBytes)
 
 	log.Info().
 		Int64("id", t.ID).
@@ -684,22 +593,6 @@ func (e *SSHExecutor) sshConfigFromConnection(conn *models.InstanceConnection) *
 		Username:       conn.Username,
 		PrivateKeyPath: conn.PrivateKeyPath,
 	}
-}
-
-// computeTargetPath determines where files should be placed on target.
-func (e *SSHExecutor) computeTargetPath(sourcePath string, targetInstance *models.Instance, mappings map[string]string) string {
-	if len(mappings) > 0 {
-		resolved := models.ApplyDirectMappings(sourcePath, mappings)
-		if resolved != sourcePath {
-			return resolved
-		}
-	}
-
-	if targetInstance.HardlinkBaseDir != "" {
-		return targetInstance.HardlinkBaseDir
-	}
-
-	return sourcePath
 }
 
 // determineLinkMode decides how files should be handled for SSH transfers.
