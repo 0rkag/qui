@@ -18,6 +18,21 @@ import (
 // ErrFileExists is returned when a file already exists and Force is not set.
 var ErrFileExists = errors.New("file already exists")
 
+// ErrFileExistsMismatch is returned when FileExistsModeSkip is set but the existing file differs.
+var ErrFileExistsMismatch = errors.New("file already exists with different content")
+
+// FileExistsMode determines behavior when target file exists.
+type FileExistsMode int
+
+const (
+	// FileExistsModeAbort fails if file exists (default).
+	FileExistsModeAbort FileExistsMode = iota
+	// FileExistsModeSkip skips identical files, errors on mismatch.
+	FileExistsModeSkip
+	// FileExistsModeOverwrite overwrites existing files.
+	FileExistsModeOverwrite
+)
+
 // TransferOptions configures FTP transfer behavior.
 type TransferOptions struct {
 	// PreservePermissions attempts to preserve file permissions (limited on FTP).
@@ -25,10 +40,22 @@ type TransferOptions struct {
 
 	// Force allows overwriting existing files. If false and the target exists,
 	// the transfer will fail with ErrFileExists.
+	// Deprecated: Use FileExistsMode instead.
 	Force bool
+
+	// FileExistsMode determines what to do when target file exists.
+	FileExistsMode FileExistsMode
 
 	// OnProgress is called periodically with transfer progress.
 	OnProgress func(bytesTransferred, bytesTotal int64)
+}
+
+// effectiveFileExistsMode returns the file exists mode, considering Force for backwards compatibility.
+func (o TransferOptions) effectiveFileExistsMode() FileExistsMode {
+	if o.Force {
+		return FileExistsModeOverwrite
+	}
+	return o.FileExistsMode
 }
 
 // progressReader wraps an io.Reader to track bytes read.
@@ -88,14 +115,26 @@ func (c *Client) Upload(ctx context.Context, localPath, remotePath string, opts 
 		return fmt.Errorf("create remote directory: %w", err)
 	}
 
-	// Check if file exists and Force is not set
-	if !opts.Force {
-		exists, err := c.Exists(remotePath)
-		if err != nil {
-			return fmt.Errorf("check destination exists: %w", err)
-		}
-		if exists {
+	// Check if file exists based on FileExistsMode
+	mode := opts.effectiveFileExistsMode()
+	if exists, err := c.Exists(remotePath); err == nil && exists {
+		switch mode {
+		case FileExistsModeAbort:
 			return ErrFileExists
+		case FileExistsModeSkip:
+			// Check if file is identical by size
+			remoteSize, err := c.FileSize(remotePath)
+			if err == nil && remoteSize == localInfo.Size() {
+				// Skip - file appears identical
+				return nil
+			}
+			// File exists but differs (or couldn't get size)
+			return ErrFileExistsMismatch
+		case FileExistsModeOverwrite:
+			// Delete existing file before upload
+			if err := c.conn.Delete(remotePath); err != nil {
+				return fmt.Errorf("delete existing file: %w", err)
+			}
 		}
 	}
 
@@ -143,10 +182,22 @@ func (c *Client) Download(ctx context.Context, remotePath, localPath string, opt
 		return fmt.Errorf("create local directory: %w", err)
 	}
 
-	// Check if file exists and Force is not set
-	if !opts.Force {
-		if _, err := os.Stat(localPath); err == nil {
+	// Check if file exists based on FileExistsMode
+	mode := opts.effectiveFileExistsMode()
+	if localInfo, err := os.Stat(localPath); err == nil {
+		switch mode {
+		case FileExistsModeAbort:
 			return ErrFileExists
+		case FileExistsModeSkip:
+			// Check if file is identical by size
+			if localInfo.Size() == size {
+				// Skip - file appears identical
+				return nil
+			}
+			// File exists but differs
+			return ErrFileExistsMismatch
+		case FileExistsModeOverwrite:
+			// os.Create will truncate, so no need to explicitly remove
 		}
 	}
 
@@ -360,14 +411,26 @@ func relayFile(ctx context.Context, src, dst *Client, srcPath, dstPath string, s
 		return fmt.Errorf("create dest directory: %w", err)
 	}
 
-	// Check if file exists and Force is not set
-	if !opts.Force {
-		exists, err := dst.Exists(dstPath)
-		if err != nil {
-			return fmt.Errorf("check destination exists: %w", err)
-		}
-		if exists {
+	// Check if file exists based on FileExistsMode
+	mode := opts.effectiveFileExistsMode()
+	if exists, err := dst.Exists(dstPath); err == nil && exists {
+		switch mode {
+		case FileExistsModeAbort:
 			return ErrFileExists
+		case FileExistsModeSkip:
+			// Check if file is identical by size
+			dstSize, err := dst.FileSize(dstPath)
+			if err == nil && dstSize == size {
+				// Skip - file appears identical
+				return nil
+			}
+			// File exists but differs
+			return ErrFileExistsMismatch
+		case FileExistsModeOverwrite:
+			// Delete existing file before upload
+			if err := dst.conn.Delete(dstPath); err != nil {
+				return fmt.Errorf("delete existing file: %w", err)
+			}
 		}
 	}
 

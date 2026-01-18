@@ -16,6 +16,21 @@ import (
 // ErrFileExists is returned when a file already exists and Force is not set.
 var ErrFileExists = errors.New("file already exists")
 
+// ErrFileExistsMismatch is returned when SkipIdentical is set but the existing file differs.
+var ErrFileExistsMismatch = errors.New("file already exists with different content")
+
+// FileExistsMode determines behavior when target file exists.
+type FileExistsMode int
+
+const (
+	// FileExistsModeAbort fails if file exists (default).
+	FileExistsModeAbort FileExistsMode = iota
+	// FileExistsModeSkip skips identical files, errors on mismatch.
+	FileExistsModeSkip
+	// FileExistsModeOverwrite overwrites existing files.
+	FileExistsModeOverwrite
+)
+
 // SFTPTransferOptions configures SFTP transfer behavior.
 type SFTPTransferOptions struct {
 	// PreservePermissions preserves file permissions during transfer.
@@ -23,7 +38,12 @@ type SFTPTransferOptions struct {
 
 	// Force allows overwriting existing files. If false and the target exists,
 	// the transfer will fail with ErrFileExists.
+	// Deprecated: Use FileExistsMode instead.
 	Force bool
+
+	// FileExistsMode determines what to do when target file exists.
+	// Default is FileExistsModeAbort.
+	FileExistsMode FileExistsMode
 
 	// BufferSize is the size of the transfer buffer (default 32KB).
 	BufferSize int
@@ -31,6 +51,14 @@ type SFTPTransferOptions struct {
 	// OnProgress is called periodically with transfer progress.
 	// bytesTransferred is cumulative, bytesTotal is the total for the operation.
 	OnProgress func(bytesTransferred, bytesTotal int64)
+}
+
+// effectiveFileExistsMode returns the file exists mode, considering Force for backwards compatibility.
+func (o SFTPTransferOptions) effectiveFileExistsMode() FileExistsMode {
+	if o.Force {
+		return FileExistsModeOverwrite
+	}
+	return o.FileExistsMode
 }
 
 const defaultBufferSize = 32 * 1024 // 32KB
@@ -95,10 +123,25 @@ func (s *SFTPClient) Upload(ctx context.Context, localPath, remotePath string, o
 		return fmt.Errorf("create remote directory: %w", err)
 	}
 
-	// Check if file exists and Force is not set
-	if !opts.Force {
-		if _, err := s.client.Stat(remotePath); err == nil {
+	// Check if file exists based on FileExistsMode
+	mode := opts.effectiveFileExistsMode()
+	if remoteInfo, err := s.client.Stat(remotePath); err == nil {
+		switch mode {
+		case FileExistsModeAbort:
 			return ErrFileExists
+		case FileExistsModeSkip:
+			// Check if file is identical by size
+			if remoteInfo.Size() == localInfo.Size() {
+				// Skip - file appears identical
+				return nil
+			}
+			// File exists but differs
+			return ErrFileExistsMismatch
+		case FileExistsModeOverwrite:
+			// Remove existing file before creating new one
+			if err := s.client.Remove(remotePath); err != nil {
+				return fmt.Errorf("remove existing file: %w", err)
+			}
 		}
 	}
 
@@ -107,6 +150,11 @@ func (s *SFTPClient) Upload(ctx context.Context, localPath, remotePath string, o
 		return fmt.Errorf("create remote file: %w", err)
 	}
 	defer remoteFile.Close()
+
+	// Helper to cleanup partial file on error
+	cleanupOnError := func() {
+		_ = s.client.Remove(remotePath)
+	}
 
 	bufSize := opts.BufferSize
 	if bufSize <= 0 {
@@ -132,9 +180,15 @@ func (s *SFTPClient) Upload(ctx context.Context, localPath, remotePath string, o
 
 	select {
 	case <-ctx.Done():
+		// Close files to interrupt the copy goroutine
+		_ = remoteFile.Close()
+		_ = localFile.Close()
+		<-done // Wait for goroutine to finish
+		cleanupOnError()
 		return ctx.Err()
 	case err := <-done:
 		if err != nil {
+			cleanupOnError()
 			return fmt.Errorf("copy data: %w", err)
 		}
 	}
@@ -175,10 +229,22 @@ func (s *SFTPClient) Download(ctx context.Context, remotePath, localPath string,
 		return fmt.Errorf("create local directory: %w", err)
 	}
 
-	// Check if file exists and Force is not set
-	if !opts.Force {
-		if _, err := os.Stat(localPath); err == nil {
+	// Check if file exists based on FileExistsMode
+	mode := opts.effectiveFileExistsMode()
+	if localInfo, err := os.Stat(localPath); err == nil {
+		switch mode {
+		case FileExistsModeAbort:
 			return ErrFileExists
+		case FileExistsModeSkip:
+			// Check if file is identical by size
+			if localInfo.Size() == remoteInfo.Size() {
+				// Skip - file appears identical
+				return nil
+			}
+			// File exists but differs
+			return ErrFileExistsMismatch
+		case FileExistsModeOverwrite:
+			// os.Create will truncate, so no need to explicitly remove
 		}
 	}
 
@@ -191,6 +257,11 @@ func (s *SFTPClient) Download(ctx context.Context, remotePath, localPath string,
 	bufSize := opts.BufferSize
 	if bufSize <= 0 {
 		bufSize = defaultBufferSize
+	}
+
+	// Helper to cleanup partial file on error
+	cleanupOnError := func() {
+		_ = os.Remove(localPath)
 	}
 
 	var reader io.Reader = remoteFile
@@ -211,9 +282,15 @@ func (s *SFTPClient) Download(ctx context.Context, remotePath, localPath string,
 
 	select {
 	case <-ctx.Done():
+		// Close files to interrupt the copy goroutine
+		_ = localFile.Close()
+		_ = remoteFile.Close()
+		<-done // Wait for goroutine to finish
+		cleanupOnError()
 		return ctx.Err()
 	case err := <-done:
 		if err != nil {
+			cleanupOnError()
 			return fmt.Errorf("copy data: %w", err)
 		}
 	}
@@ -286,6 +363,7 @@ func (s *SFTPClient) UploadTree(ctx context.Context, localDir, remoteDir string,
 		fileOpts := SFTPTransferOptions{
 			PreservePermissions: opts.PreservePermissions,
 			Force:               opts.Force,
+			FileExistsMode:      opts.FileExistsMode,
 			BufferSize:          opts.BufferSize,
 			OnProgress:          progressCallback,
 		}
@@ -319,8 +397,8 @@ func (s *SFTPClient) DownloadTree(ctx context.Context, remoteDir, localDir strin
 
 	walker := s.client.Walk(remoteDir)
 	for walker.Step() {
-		if walker.Err() != nil {
-			continue
+		if err := walker.Err(); err != nil {
+			return fmt.Errorf("walk remote directory %s: %w", walker.Path(), err)
 		}
 		if !walker.Stat().IsDir() {
 			totalBytes += walker.Stat().Size()
@@ -355,6 +433,7 @@ func (s *SFTPClient) DownloadTree(ctx context.Context, remoteDir, localDir strin
 		fileOpts := SFTPTransferOptions{
 			PreservePermissions: opts.PreservePermissions,
 			Force:               opts.Force,
+			FileExistsMode:      opts.FileExistsMode,
 			BufferSize:          opts.BufferSize,
 			OnProgress:          progressCallback,
 		}
@@ -413,10 +492,25 @@ func sftpRelayFile(ctx context.Context, src, dst *SFTPClient, srcPath, dstPath s
 		return fmt.Errorf("create dest directory: %w", err)
 	}
 
-	// Check if file exists and Force is not set
-	if !opts.Force {
-		if _, err := dst.client.Stat(dstPath); err == nil {
+	// Check if file exists based on FileExistsMode
+	mode := opts.effectiveFileExistsMode()
+	if dstInfo, err := dst.client.Stat(dstPath); err == nil {
+		switch mode {
+		case FileExistsModeAbort:
 			return ErrFileExists
+		case FileExistsModeSkip:
+			// Check if file is identical by size
+			if dstInfo.Size() == size {
+				// Skip - file appears identical
+				return nil
+			}
+			// File exists but differs
+			return ErrFileExistsMismatch
+		case FileExistsModeOverwrite:
+			// Remove existing file before creating new one
+			if err := dst.client.Remove(dstPath); err != nil {
+				return fmt.Errorf("remove existing file: %w", err)
+			}
 		}
 	}
 
@@ -425,6 +519,11 @@ func sftpRelayFile(ctx context.Context, src, dst *SFTPClient, srcPath, dstPath s
 		return fmt.Errorf("create dest file: %w", err)
 	}
 	defer dstFile.Close()
+
+	// Helper to cleanup partial file on error
+	cleanupOnError := func() {
+		_ = dst.client.Remove(dstPath)
+	}
 
 	bufSize := opts.BufferSize
 	if bufSize <= 0 {
@@ -449,9 +548,15 @@ func sftpRelayFile(ctx context.Context, src, dst *SFTPClient, srcPath, dstPath s
 
 	select {
 	case <-ctx.Done():
+		// Close files to interrupt the copy goroutine
+		_ = srcFile.Close()
+		_ = dstFile.Close()
+		<-done // Wait for goroutine to finish
+		cleanupOnError()
 		return ctx.Err()
 	case err := <-done:
 		if err != nil {
+			cleanupOnError()
 			return fmt.Errorf("copy data: %w", err)
 		}
 	}
@@ -479,8 +584,8 @@ func sftpRelayDir(ctx context.Context, src, dst *SFTPClient, srcDir, dstDir stri
 
 	walker := src.client.Walk(srcDir)
 	for walker.Step() {
-		if walker.Err() != nil {
-			continue
+		if err := walker.Err(); err != nil {
+			return fmt.Errorf("walk source directory %s: %w", walker.Path(), err)
 		}
 		if !walker.Stat().IsDir() {
 			totalBytes += walker.Stat().Size()
@@ -516,6 +621,7 @@ func sftpRelayDir(ctx context.Context, src, dst *SFTPClient, srcDir, dstDir stri
 			SFTPTransferOptions: SFTPTransferOptions{
 				PreservePermissions: opts.PreservePermissions,
 				Force:               opts.Force,
+				FileExistsMode:      opts.FileExistsMode,
 				BufferSize:          opts.BufferSize,
 				OnProgress:          progressCallback,
 			},

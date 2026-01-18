@@ -2314,8 +2314,12 @@ class ApiClient {
     targetSavePath?: string
     link_mode?: string
     linkMode?: string
-    delete_from_source?: boolean
-    deleteFromSource?: boolean
+    file_exists_action?: string
+    fileExistsAction?: string
+    source_action?: string
+    sourceAction?: string
+    verify_transfer?: boolean
+    verifyTransfer?: boolean
     preserve_category?: boolean
     preserveCategory?: boolean
     preserve_tags?: boolean
@@ -2349,7 +2353,9 @@ class ApiClient {
     payload: {
       targetInstanceId: number
       pathMappings?: Record<string, string>
-      deleteFromSource?: boolean
+      fileExistsAction?: "abort" | "skip" | "overwrite"
+      sourceAction?: "keep" | "pause" | "delete"
+      verifyTransfer?: boolean
       preserveCategory?: boolean
       preserveTags?: boolean
     }
@@ -2361,7 +2367,9 @@ class ApiClient {
         body: JSON.stringify({
           targetInstanceId: payload.targetInstanceId,
           pathMappings: payload.pathMappings,
-          deleteFromSource: payload.deleteFromSource,
+          fileExistsAction: payload.fileExistsAction,
+          sourceAction: payload.sourceAction,
+          verifyTransfer: payload.verifyTransfer,
           preserveCategory: payload.preserveCategory,
           preserveTags: payload.preserveTags,
         }),
@@ -2412,7 +2420,9 @@ class ApiClient {
       sourceSavePath: raw.sourceSavePath ?? raw.source_save_path,
       targetSavePath: raw.targetSavePath ?? raw.target_save_path,
       linkMode: (raw.linkMode ?? raw.link_mode) as Transfer["linkMode"],
-      deleteFromSource: raw.deleteFromSource ?? raw.delete_from_source ?? false,
+      fileExistsAction: (raw.fileExistsAction ?? raw.file_exists_action ?? "abort") as Transfer["fileExistsAction"],
+      sourceAction: (raw.sourceAction ?? raw.source_action ?? "keep") as Transfer["sourceAction"],
+      verifyTransfer: raw.verifyTransfer ?? raw.verify_transfer ?? false,
       preserveCategory: raw.preserveCategory ?? raw.preserve_category ?? false,
       preserveTags: raw.preserveTags ?? raw.preserve_tags ?? false,
       targetCategory: raw.targetCategory ?? raw.target_category,

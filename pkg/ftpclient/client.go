@@ -113,9 +113,6 @@ func New(cfg *Config) (*Client, error) {
 		return nil, fmt.Errorf("ftp login failed: %w", err)
 	}
 
-	// Clear password from config after successful login
-	cfg.Password = ""
-
 	return &Client{
 		config: cfg,
 		conn:   conn,

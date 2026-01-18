@@ -7,7 +7,7 @@ import { usePersistedDeleteFiles } from "@/hooks/usePersistedDeleteFiles"
 import { api } from "@/lib/api"
 import type { Torrent, TorrentFilters } from "@/types"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 // Const object for better developer experience and refactoring safety
@@ -78,6 +78,22 @@ interface ClientMeta {
 
 export function useTorrentActions({ instanceId, onActionComplete }: UseTorrentActionsProps) {
   const queryClient = useQueryClient()
+
+  // Track mounted state for async operations
+  const isMountedRef = useRef(true)
+  const refetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (refetchTimeoutRef.current) {
+        clearTimeout(refetchTimeoutRef.current)
+        refetchTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   // Dialog states
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -874,19 +890,25 @@ export function useTorrentActions({ instanceId, onActionComplete }: UseTorrentAc
     mutationFn: async ({
       hash,
       targetInstanceId,
-      deleteFromSource,
+      fileExistsAction,
+      sourceAction,
+      verifyTransfer,
       preserveCategory,
       preserveTags,
     }: {
       hash: string
       targetInstanceId: number
-      deleteFromSource: boolean
+      fileExistsAction: "abort" | "skip" | "overwrite"
+      sourceAction: "keep" | "pause" | "delete"
+      verifyTransfer: boolean
       preserveCategory: boolean
       preserveTags: boolean
     }) => {
       return api.moveTorrent(instanceId, hash, {
         targetInstanceId,
-        deleteFromSource,
+        fileExistsAction,
+        sourceAction,
+        verifyTransfer,
         preserveCategory,
         preserveTags,
       })
@@ -896,7 +918,9 @@ export function useTorrentActions({ instanceId, onActionComplete }: UseTorrentAc
   const handleMoveToInstance = useCallback(async (
     targetInstanceId: number,
     options: {
-      deleteFromSource: boolean
+      fileExistsAction: "abort" | "skip" | "overwrite"
+      sourceAction: "keep" | "pause" | "delete"
+      verifyTransfer: boolean
       preserveCategory: boolean
       preserveTags: boolean
     }
@@ -907,6 +931,9 @@ export function useTorrentActions({ instanceId, onActionComplete }: UseTorrentAc
     const results: { hash: string; success: boolean; error?: string }[] = []
 
     for (const hash of contextHashes) {
+      // Check if component is still mounted before continuing
+      if (!isMountedRef.current) return
+
       try {
         await moveTorrentMutation.mutateAsync({
           hash,
@@ -919,11 +946,19 @@ export function useTorrentActions({ instanceId, onActionComplete }: UseTorrentAc
       }
     }
 
+    // Check if component is still mounted before updating state
+    if (!isMountedRef.current) return
+
     const successCount = results.filter((r) => r.success).length
     const failCount = results.filter((r) => !r.success).length
 
     if (successCount > 0) {
-      setTimeout(() => {
+      // Clear any existing timeout before setting a new one
+      if (refetchTimeoutRef.current) {
+        clearTimeout(refetchTimeoutRef.current)
+      }
+      refetchTimeoutRef.current = setTimeout(() => {
+        if (!isMountedRef.current) return
         queryClient.refetchQueries({
           queryKey: ["torrents-list", instanceId],
           exact: false,

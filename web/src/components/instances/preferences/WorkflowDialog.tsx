@@ -1831,14 +1831,16 @@ export function WorkflowDialog({ open, onOpenChange, instanceId, rule, onSuccess
                           })) ?? []}
                           value={{
                             targetInstanceId: formState.exprMoveTargetInstanceId,
-                            deleteFromSource: formState.exprMoveDeleteFromSource,
+                            fileExistsAction: "abort",
+                            sourceAction: formState.exprMoveDeleteFromSource ? "delete" : "keep",
+                            verifyTransfer: false,
                             preserveCategory: formState.exprMovePreserveCategory,
                             preserveTags: formState.exprMovePreserveTags,
                           }}
                           onChange={(val: MoveInstanceValue) => setFormState(prev => ({
                             ...prev,
                             exprMoveTargetInstanceId: val.targetInstanceId,
-                            exprMoveDeleteFromSource: val.deleteFromSource,
+                            exprMoveDeleteFromSource: val.sourceAction === "delete",
                             exprMovePreserveCategory: val.preserveCategory,
                             exprMovePreserveTags: val.preserveTags,
                           }))}

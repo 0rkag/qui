@@ -5,6 +5,7 @@ package transfer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,18 @@ import (
 	"github.com/autobrr/qui/pkg/checksum"
 	"github.com/autobrr/qui/pkg/sshclient"
 )
+
+// fileExistsActionToMode converts FileExistsAction to sshclient.FileExistsMode.
+func fileExistsActionToMode(action models.FileExistsAction) sshclient.FileExistsMode {
+	switch action {
+	case models.FileExistsSkip:
+		return sshclient.FileExistsModeSkip
+	case models.FileExistsOverwrite:
+		return sshclient.FileExistsModeOverwrite
+	default:
+		return sshclient.FileExistsModeAbort
+	}
+}
 
 // SSHExecutor handles transfers where file operations are performed via SSH.
 // This supports deployments where QUI is remote from the qBittorrent instances
@@ -108,14 +121,15 @@ func (e *SSHExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepare
 
 // CreateLinks creates files at the target location via SSH/rsync.
 func (e *SSHExecutor) CreateLinks(ctx context.Context, t *models.Transfer, prep *PrepareResult) (int, error) {
-	// Get SSH connections for source and target (errors are ok - means no SSH configured for that instance)
+	// Get SSH connections for source and target
+	// ErrConnectionNotFound is OK (means no SSH configured), but other errors should fail fast
 	sourceSSH, err := e.connectionStore.GetSSHByInstance(ctx, t.SourceInstanceID)
-	if err != nil && err != models.ErrConnectionNotFound {
-		log.Warn().Err(err).Int("instanceID", t.SourceInstanceID).Msg("[TRANSFER-SSH] Failed to get source SSH connection")
+	if err != nil && !errors.Is(err, models.ErrConnectionNotFound) {
+		return 0, fmt.Errorf("failed to get source SSH connection: %w", err)
 	}
 	targetSSH, err := e.connectionStore.GetSSHByInstance(ctx, t.TargetInstanceID)
-	if err != nil && err != models.ErrConnectionNotFound {
-		log.Warn().Err(err).Int("instanceID", t.TargetInstanceID).Msg("[TRANSFER-SSH] Failed to get target SSH connection")
+	if err != nil && !errors.Is(err, models.ErrConnectionNotFound) {
+		return 0, fmt.Errorf("failed to get target SSH connection: %w", err)
 	}
 
 	switch prep.LinkMode {
@@ -249,8 +263,15 @@ func (e *SSHExecutor) VerifyTransfer(ctx context.Context, t *models.Transfer, pr
 		Msg("[TRANSFER-SSH] Starting transfer verification")
 
 	// Get SSH connections for source and target
-	sourceSSH, _ := e.connectionStore.GetSSHByInstance(ctx, t.SourceInstanceID)
-	targetSSH, _ := e.connectionStore.GetSSHByInstance(ctx, t.TargetInstanceID)
+	// ErrConnectionNotFound is OK, but other errors should fail fast
+	sourceSSH, err := e.connectionStore.GetSSHByInstance(ctx, t.SourceInstanceID)
+	if err != nil && !errors.Is(err, models.ErrConnectionNotFound) {
+		return fmt.Errorf("failed to get source SSH connection for verification: %w", err)
+	}
+	targetSSH, err := e.connectionStore.GetSSHByInstance(ctx, t.TargetInstanceID)
+	if err != nil && !errors.Is(err, models.ErrConnectionNotFound) {
+		return fmt.Errorf("failed to get target SSH connection for verification: %w", err)
+	}
 
 	sourceHasLocal := prep.SourceInstance.HasLocalFilesystemAccess
 	targetHasLocal := prep.TargetInstance.HasLocalFilesystemAccess
@@ -354,13 +375,7 @@ func (e *SSHExecutor) getSSHClient(conn *models.InstanceConnection) (*sshclient.
 		return nil, fmt.Errorf("SSH connection not configured or disabled")
 	}
 
-	cfg := &sshclient.Config{
-		Host:           conn.Host,
-		Port:           conn.Port,
-		Username:       conn.Username,
-		PrivateKeyPath: conn.PrivateKeyPath,
-	}
-
+	cfg := e.sshConfigFromConnection(conn)
 	return e.sshPool.Get(cfg)
 }
 
@@ -412,11 +427,16 @@ func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 
 	switch method {
 	case transferMethodRsync:
-		count, err := e.transferFilesRsync(ctx, t, prep, sourceSSH, targetSSH)
-		if err != nil {
+		count, rsyncErr := e.transferFilesRsync(ctx, t, prep, sourceSSH, targetSSH)
+		if rsyncErr != nil {
 			// If rsync fails, try SFTP as fallback
-			log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER-SSH] Rsync failed, falling back to SFTP")
-			return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
+			log.Warn().Err(rsyncErr).Int64("id", t.ID).Msg("[TRANSFER-SSH] Rsync failed, falling back to SFTP")
+			count, sftpErr := e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
+			if sftpErr != nil {
+				// Both failed - return combined error
+				return 0, fmt.Errorf("rsync failed: %v; sftp fallback also failed: %w", rsyncErr, sftpErr)
+			}
+			return count, nil
 		}
 		return count, nil
 
@@ -424,9 +444,8 @@ func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 		return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
 
 	case transferMethodSCP:
-		// SCP is not yet implemented, fall back to SFTP
-		log.Warn().Int64("id", t.ID).Msg("[TRANSFER-SSH] SCP not implemented, using SFTP")
-		return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
+		// SCP is not yet implemented - return error so users know to use a different method
+		return 0, fmt.Errorf("SCP transfer method is not yet implemented; please use ssh_auto, ssh_rsync, or ssh_sftp instead")
 
 	default:
 		return 0, fmt.Errorf("unsupported transfer method: %s", method)
@@ -511,7 +530,7 @@ func (e *SSHExecutor) transferFilesSFTP(ctx context.Context, t *models.Transfer,
 
 	opts := sshclient.SFTPTransferOptions{
 		PreservePermissions: true,
-		Force:               t.Force,
+		FileExistsMode:      fileExistsActionToMode(t.FileExistsAction),
 	}
 
 	switch {
@@ -605,13 +624,7 @@ func (e *SSHExecutor) getSFTPClient(conn *models.InstanceConnection) (*sshclient
 		return nil, fmt.Errorf("SSH connection not configured or disabled")
 	}
 
-	cfg := &sshclient.Config{
-		Host:           conn.Host,
-		Port:           conn.Port,
-		Username:       conn.Username,
-		PrivateKeyPath: conn.PrivateKeyPath,
-	}
-
+	cfg := e.sshConfigFromConnection(conn)
 	return sshclient.NewSFTPClientFromConfig(cfg)
 }
 
@@ -644,7 +657,8 @@ func (e *SSHExecutor) createRemoteLinks(ctx context.Context, t *models.Transfer,
 				return linked, fmt.Errorf("failed to hardlink %s: %w", f.RelPath, err)
 			}
 		case "reflink":
-			if err := client.Reflink(ctx, srcPath, dstPath, t.Force); err != nil {
+			force := t.FileExistsAction == models.FileExistsOverwrite
+			if err := client.Reflink(ctx, srcPath, dstPath, force); err != nil {
 				return linked, fmt.Errorf("failed to reflink %s: %w", f.RelPath, err)
 			}
 		}
@@ -683,7 +697,8 @@ func (e *SSHExecutor) copyRemoteFiles(ctx context.Context, t *models.Transfer, p
 			return copied, fmt.Errorf("failed to create directory %s: %w", dstDir, err)
 		}
 
-		if err := client.Copy(ctx, srcPath, dstPath, t.Force); err != nil {
+		force := t.FileExistsAction == models.FileExistsOverwrite
+		if err := client.Copy(ctx, srcPath, dstPath, force); err != nil {
 			return copied, fmt.Errorf("failed to copy %s: %w", f.RelPath, err)
 		}
 		copied++
@@ -712,13 +727,28 @@ func (e *SSHExecutor) ensureTargetDir(ctx context.Context, dir string, sshConn *
 }
 
 // sshConfigFromConnection creates an sshclient.Config from a connection model.
+// Includes the expected host key fingerprint for verification if available.
 func (e *SSHExecutor) sshConfigFromConnection(conn *models.InstanceConnection) *sshclient.Config {
-	return &sshclient.Config{
+	cfg := &sshclient.Config{
 		Host:           conn.Host,
 		Port:           conn.Port,
 		Username:       conn.Username,
 		PrivateKeyPath: conn.PrivateKeyPath,
 	}
+
+	// Include expected host key for verification if available (TOFU)
+	if conn.HostKeyFingerprint != nil && *conn.HostKeyFingerprint != "" {
+		alg := ""
+		if conn.HostKeyAlgorithm != nil {
+			alg = *conn.HostKeyAlgorithm
+		}
+		cfg.ExpectedHostKey = &sshclient.HostKeyInfo{
+			Fingerprint: *conn.HostKeyFingerprint,
+			Algorithm:   alg,
+		}
+	}
+
+	return cfg
 }
 
 // determineLinkMode decides how files should be handled for SSH transfers.
@@ -744,8 +774,14 @@ func (e *SSHExecutor) determineLinkMode(ctx context.Context, source, target *mod
 
 	// Check if both instances have SSH to the same host (same machine scenario)
 	if e.connectionStore != nil {
-		sourceSSH, _ := e.connectionStore.GetSSHByInstance(ctx, source.ID)
-		targetSSH, _ := e.connectionStore.GetSSHByInstance(ctx, target.ID)
+		sourceSSH, err := e.connectionStore.GetSSHByInstance(ctx, source.ID)
+		if err != nil && !errors.Is(err, models.ErrConnectionNotFound) {
+			log.Warn().Err(err).Int("instanceID", source.ID).Msg("[TRANSFER-SSH] Error getting source SSH for link mode detection")
+		}
+		targetSSH, err := e.connectionStore.GetSSHByInstance(ctx, target.ID)
+		if err != nil && !errors.Is(err, models.ErrConnectionNotFound) {
+			log.Warn().Err(err).Int("instanceID", target.ID).Msg("[TRANSFER-SSH] Error getting target SSH for link mode detection")
+		}
 
 		if sourceSSH != nil && targetSSH != nil && sourceSSH.Host == targetSSH.Host {
 			// Same host via SSH - can use linking based on target settings

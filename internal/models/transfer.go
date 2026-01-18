@@ -68,6 +68,42 @@ func (s TransferState) IsValid() bool {
 	return ok
 }
 
+// FileExistsAction determines behavior when target file already exists
+type FileExistsAction string
+
+const (
+	FileExistsAbort     FileExistsAction = "abort"     // Fail transfer if file exists
+	FileExistsSkip      FileExistsAction = "skip"      // Skip if identical (size match, or checksum if verify enabled)
+	FileExistsOverwrite FileExistsAction = "overwrite" // Overwrite existing files
+)
+
+// IsValid returns true if the action is recognized
+func (a FileExistsAction) IsValid() bool {
+	switch a {
+	case FileExistsAbort, FileExistsSkip, FileExistsOverwrite:
+		return true
+	}
+	return false
+}
+
+// SourceAction determines what happens to the source torrent after transfer
+type SourceAction string
+
+const (
+	SourceKeep   SourceAction = "keep"   // Keep seeding on source
+	SourcePause  SourceAction = "pause"  // Pause torrent on source
+	SourceDelete SourceAction = "delete" // Remove torrent and files from source
+)
+
+// IsValid returns true if the action is recognized
+func (a SourceAction) IsValid() bool {
+	switch a {
+	case SourceKeep, SourcePause, SourceDelete:
+		return true
+	}
+	return false
+}
+
 // Transfer represents a torrent transfer between instances
 type Transfer struct {
 	ID               int64         `json:"id"`
@@ -83,11 +119,11 @@ type Transfer struct {
 	LinkMode       string `json:"linkMode,omitempty"` // "hardlink", "reflink", "direct"
 
 	// Options
-	DeleteFromSource bool              `json:"deleteFromSource"`
+	FileExistsAction FileExistsAction  `json:"fileExistsAction"` // What to do if target file exists
+	SourceAction     SourceAction      `json:"sourceAction"`     // What to do with source after transfer
+	VerifyTransfer   bool              `json:"verifyTransfer"`   // Enable post-transfer checksum verification
 	PreserveCategory bool              `json:"preserveCategory"`
 	PreserveTags     bool              `json:"preserveTags"`
-	Force            bool              `json:"force"`          // Allow overwriting existing files
-	VerifyTransfer   bool              `json:"verifyTransfer"` // Enable post-transfer checksum verification
 	TargetCategory   string            `json:"targetCategory,omitempty"`
 	TargetTags       []string          `json:"targetTags,omitempty"`
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
@@ -125,6 +161,12 @@ func (s *TransferStore) Create(ctx context.Context, t *Transfer) (*Transfer, err
 	if t.State == "" {
 		t.State = TransferStatePending
 	}
+	if t.FileExistsAction == "" {
+		t.FileExistsAction = FileExistsAbort
+	}
+	if t.SourceAction == "" {
+		t.SourceAction = SourceKeep
+	}
 	if t.SourceInstanceID == 0 {
 		return nil, errors.New("source instance ID is required")
 	}
@@ -157,15 +199,16 @@ func (s *TransferStore) Create(ctx context.Context, t *Transfer) (*Transfer, err
 		INSERT INTO transfers (
 			source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
+			file_exists_action, source_action, verify_transfer,
+			preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.SourceInstanceID, t.TargetInstanceID, t.TorrentHash, t.TorrentName,
 		t.State, nullString(t.SourceSavePath), nullString(t.TargetSavePath), nullString(t.LinkMode),
-		boolToInt(t.DeleteFromSource), boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
-		boolToInt(t.Force), boolToInt(t.VerifyTransfer),
+		string(t.FileExistsAction), string(t.SourceAction), boolToInt(t.VerifyTransfer),
+		boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
 		nullString(t.TargetCategory), targetTagsJSON, pathMappingsJSON,
 		t.FilesTotal, t.FilesLinked, t.BytesTotal, t.BytesTransferred, nullString(t.Error),
 	)
@@ -186,7 +229,7 @@ func (s *TransferStore) Get(ctx context.Context, id int64) (*Transfer, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
+			file_exists_action, source_action, verify_transfer, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -202,7 +245,7 @@ func (s *TransferStore) GetByHash(ctx context.Context, hash string) (*Transfer, 
 	query := `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
+			file_exists_action, source_action, verify_transfer, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -253,8 +296,8 @@ func (s *TransferStore) Update(ctx context.Context, t *Transfer) error {
 		UPDATE transfers SET
 			torrent_name = ?, state = ?,
 			source_save_path = ?, target_save_path = ?, link_mode = ?,
-			delete_from_source = ?, preserve_category = ?, preserve_tags = ?,
-			force = ?, verify_transfer = ?,
+			file_exists_action = ?, source_action = ?, verify_transfer = ?,
+			preserve_category = ?, preserve_tags = ?,
 			target_category = ?, target_tags = ?, path_mappings = ?,
 			files_total = ?, files_linked = ?, bytes_total = ?, bytes_transferred = ?,
 			error = ?, completed_at = ?
@@ -262,8 +305,8 @@ func (s *TransferStore) Update(ctx context.Context, t *Transfer) error {
 	`,
 		t.TorrentName, t.State,
 		nullString(t.SourceSavePath), nullString(t.TargetSavePath), nullString(t.LinkMode),
-		boolToInt(t.DeleteFromSource), boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
-		boolToInt(t.Force), boolToInt(t.VerifyTransfer),
+		string(t.FileExistsAction), string(t.SourceAction), boolToInt(t.VerifyTransfer),
+		boolToInt(t.PreserveCategory), boolToInt(t.PreserveTags),
 		nullString(t.TargetCategory), targetTagsJSON, pathMappingsJSON,
 		t.FilesTotal, t.FilesLinked, t.BytesTotal, t.BytesTransferred,
 		nullString(t.Error), nullTime(t.CompletedAt),
@@ -304,7 +347,7 @@ func (s *TransferStore) ListByStates(ctx context.Context, states []TransferState
 	query := `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
+			file_exists_action, source_action, verify_transfer, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -336,7 +379,7 @@ func (s *TransferStore) ListByInstance(ctx context.Context, instanceID int, limi
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
+			file_exists_action, source_action, verify_transfer, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -358,7 +401,7 @@ func (s *TransferStore) ListRecent(ctx context.Context, limit, offset int) ([]*T
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, source_instance_id, target_instance_id, torrent_hash, torrent_name,
 			state, source_save_path, target_save_path, link_mode,
-			delete_from_source, preserve_category, preserve_tags, force, verify_transfer,
+			file_exists_action, source_action, verify_transfer, preserve_category, preserve_tags,
 			target_category, target_tags, path_mappings,
 			files_total, files_linked, bytes_total, bytes_transferred, error,
 			created_at, updated_at, completed_at
@@ -425,6 +468,7 @@ type scannable interface {
 func (s *TransferStore) scanTransfer(row scannable) (*Transfer, error) {
 	var t Transfer
 	var sourceSavePath, targetSavePath, linkMode sql.NullString
+	var fileExistsAction, sourceAction string
 	var targetCategory sql.NullString
 	var targetTagsJSON, pathMappingsJSON sql.NullString
 	var errorStr sql.NullString
@@ -433,7 +477,8 @@ func (s *TransferStore) scanTransfer(row scannable) (*Transfer, error) {
 	err := row.Scan(
 		&t.ID, &t.SourceInstanceID, &t.TargetInstanceID, &t.TorrentHash, &t.TorrentName,
 		&t.State, &sourceSavePath, &targetSavePath, &linkMode,
-		&t.DeleteFromSource, &t.PreserveCategory, &t.PreserveTags, &t.Force, &t.VerifyTransfer,
+		&fileExistsAction, &sourceAction, &t.VerifyTransfer,
+		&t.PreserveCategory, &t.PreserveTags,
 		&targetCategory, &targetTagsJSON, &pathMappingsJSON,
 		&t.FilesTotal, &t.FilesLinked, &t.BytesTotal, &t.BytesTransferred, &errorStr,
 		&t.CreatedAt, &t.UpdatedAt, &completedAt,
@@ -445,6 +490,8 @@ func (s *TransferStore) scanTransfer(row scannable) (*Transfer, error) {
 	t.SourceSavePath = sourceSavePath.String
 	t.TargetSavePath = targetSavePath.String
 	t.LinkMode = linkMode.String
+	t.FileExistsAction = FileExistsAction(fileExistsAction)
+	t.SourceAction = SourceAction(sourceAction)
 	t.TargetCategory = targetCategory.String
 	t.Error = errorStr.String
 

@@ -15,6 +15,18 @@ import (
 	"github.com/autobrr/qui/pkg/ftpclient"
 )
 
+// ftpFileExistsActionToMode converts FileExistsAction to ftpclient.FileExistsMode.
+func ftpFileExistsActionToMode(action models.FileExistsAction) ftpclient.FileExistsMode {
+	switch action {
+	case models.FileExistsSkip:
+		return ftpclient.FileExistsModeSkip
+	case models.FileExistsOverwrite:
+		return ftpclient.FileExistsModeOverwrite
+	default:
+		return ftpclient.FileExistsModeAbort
+	}
+}
+
 // FTPExecutor handles transfers where file operations are performed via FTP/FTPS.
 // This supports deployments where instances have FTP access but not SSH.
 // MVP: Only relay mode (data flows through QUI). FXP will be added later.
@@ -185,7 +197,7 @@ func (e *FTPExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 
 	opts := ftpclient.TransferOptions{
 		PreservePermissions: false,
-		Force:               t.Force,
+		FileExistsMode:      ftpFileExistsActionToMode(t.FileExistsAction),
 	}
 
 	switch {

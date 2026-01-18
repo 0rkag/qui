@@ -6,13 +6,20 @@ package sshclient
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/ssh"
+
+	"github.com/autobrr/qui/pkg/pathutil"
 )
 
 // Validation patterns for SSH configuration
@@ -67,21 +74,12 @@ func detectLocalRsyncVersion() {
 
 // ValidatePath checks if a path is safe for use in shell commands.
 // It ensures the path is absolute, contains no traversal attempts, and has reasonable length.
-func ValidatePath(path string) error {
-	if path == "" {
-		return fmt.Errorf("path cannot be empty")
-	}
-	if len(path) > 4096 {
+func ValidatePath(p string) error {
+	if len(p) > 4096 {
 		return fmt.Errorf("path too long (max 4096 chars)")
 	}
-	// Must be absolute (starts with /)
-	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("path must be absolute")
-	}
-	// Check for path traversal BEFORE cleaning to catch attempts like /foo/../bar
-	// which would be normalized to /bar by filepath.Clean
-	if strings.Contains(path, "..") {
-		return fmt.Errorf("path contains traversal elements")
+	if err := pathutil.ValidateAbsolute(p); err != nil {
+		return err
 	}
 	return nil
 }
@@ -148,6 +146,141 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
+// verifyHostKey performs a quick connection to verify the host key matches the expected fingerprint.
+// This should be called before running rsync/scp commands to ensure we're connecting to the right host.
+// If no expected key is set in config, this function returns nil (TOFU behavior).
+func verifyHostKey(ctx context.Context, cfg *Config) error {
+	if cfg.ExpectedHostKey == nil || cfg.ExpectedHostKey.Fingerprint == "" {
+		// No expected key - TOFU behavior, accept any key
+		return nil
+	}
+	if cfg.SkipHostKeyVerification {
+		// Explicitly skipping verification
+		return nil
+	}
+
+	// Create a minimal connection to verify the host key
+	// We use a short timeout since this is just for verification
+	verifyCfg := &Config{
+		Host:            cfg.Host,
+		Port:            cfg.Port,
+		Username:        cfg.Username,
+		Password:        cfg.Password,
+		PrivateKeyPath:  cfg.PrivateKeyPath,
+		Timeout:         cfg.Timeout,
+		ExpectedHostKey: cfg.ExpectedHostKey,
+	}
+
+	client, _, err := New(verifyCfg)
+	if err != nil {
+		return fmt.Errorf("host key verification failed: %w", err)
+	}
+	client.Close()
+	return nil
+}
+
+// captureHostKey connects to a host and captures its public key for known_hosts generation.
+// Returns the host key in OpenSSH known_hosts format.
+func captureHostKey(ctx context.Context, cfg *Config) (string, error) {
+	var capturedKey ssh.PublicKey
+
+	// Build auth methods
+	var authMethods []ssh.AuthMethod
+	if cfg.PrivateKeyPath != "" {
+		signer, err := loadPrivateKey(cfg.PrivateKeyPath)
+		if err != nil {
+			return "", fmt.Errorf("load private key: %w", err)
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	}
+	if cfg.Password != "" {
+		authMethods = append(authMethods, ssh.Password(cfg.Password))
+	}
+	if len(authMethods) == 0 {
+		return "", fmt.Errorf("no authentication method available")
+	}
+
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = 10 * 1000000000 // 10 seconds
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User: cfg.Username,
+		Auth: authMethods,
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			capturedKey = key
+			// If we have an expected key, verify it
+			if cfg.ExpectedHostKey != nil && cfg.ExpectedHostKey.Fingerprint != "" {
+				fingerprint := ssh.FingerprintSHA256(key)
+				if fingerprint != cfg.ExpectedHostKey.Fingerprint {
+					return &HostKeyError{
+						Expected: cfg.ExpectedHostKey.Fingerprint,
+						Actual:   fingerprint,
+						Hostname: hostname,
+					}
+				}
+			}
+			return nil
+		},
+		Timeout: timeout,
+	}
+
+	port := cfg.Port
+	if port == 0 {
+		port = 22
+	}
+	addr := fmt.Sprintf("%s:%d", cfg.Host, port)
+
+	client, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return "", err
+	}
+	client.Close()
+
+	if capturedKey == nil {
+		return "", fmt.Errorf("failed to capture host key")
+	}
+
+	// Format as known_hosts entry: [host]:port keytype base64key
+	hostEntry := cfg.Host
+	if port != 22 {
+		hostEntry = fmt.Sprintf("[%s]:%d", cfg.Host, port)
+	}
+	keyType := capturedKey.Type()
+	keyData := base64.StdEncoding.EncodeToString(capturedKey.Marshal())
+
+	return fmt.Sprintf("%s %s %s", hostEntry, keyType, keyData), nil
+}
+
+// createTempKnownHosts creates a temporary known_hosts file with the given entries.
+// Returns the path to the temporary file. Caller is responsible for removing it.
+func createTempKnownHosts(entries ...string) (string, error) {
+	if len(entries) == 0 {
+		return "", fmt.Errorf("no known_hosts entries provided")
+	}
+
+	tmpFile, err := os.CreateTemp("", "qui-known-hosts-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp file: %w", err)
+	}
+
+	content := strings.Join(entries, "\n") + "\n"
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("write known_hosts: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("close known_hosts: %w", err)
+	}
+
+	return tmpFile.Name(), nil
+}
+
+
 // ProgressInfo contains transfer progress information.
 type ProgressInfo struct {
 	BytesTransferred int64
@@ -192,8 +325,20 @@ func RsyncPush(ctx context.Context, cfg *Config, localPath, remotePath string, o
 		opts = &TransferOptions{PreservePermissions: true}
 	}
 
+	// Capture host key and create temporary known_hosts file for rsync
+	knownHostsEntry, err := captureHostKey(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("verify host key: %w", err)
+	}
+
+	knownHostsFile, err := createTempKnownHosts(knownHostsEntry)
+	if err != nil {
+		return nil, fmt.Errorf("create known_hosts: %w", err)
+	}
+	defer os.Remove(knownHostsFile)
+
 	args := buildRsyncArgs(opts)
-	args = append(args, "-e", buildSSHCommand(cfg))
+	args = append(args, "-e", buildSSHCommandSecure(cfg, knownHostsFile))
 	args = append(args, localPath)
 	args = append(args, fmt.Sprintf("%s@%s:%s", cfg.Username, cfg.Host, remotePath))
 
@@ -209,8 +354,20 @@ func RsyncPull(ctx context.Context, cfg *Config, remotePath, localPath string, o
 		opts = &TransferOptions{PreservePermissions: true}
 	}
 
+	// Capture host key and create temporary known_hosts file for rsync
+	knownHostsEntry, err := captureHostKey(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("verify host key: %w", err)
+	}
+
+	knownHostsFile, err := createTempKnownHosts(knownHostsEntry)
+	if err != nil {
+		return nil, fmt.Errorf("create known_hosts: %w", err)
+	}
+	defer os.Remove(knownHostsFile)
+
 	args := buildRsyncArgs(opts)
-	args = append(args, "-e", buildSSHCommand(cfg))
+	args = append(args, "-e", buildSSHCommandSecure(cfg, knownHostsFile))
 	args = append(args, fmt.Sprintf("%s@%s:%s", cfg.Username, cfg.Host, remotePath))
 	args = append(args, localPath)
 
@@ -219,6 +376,11 @@ func RsyncPull(ctx context.Context, cfg *Config, remotePath, localPath string, o
 
 // RsyncRemoteToRemote transfers files between two remote hosts.
 // Requires the source host to have SSH access to the destination host.
+//
+// Host key verification:
+//   - Source host: Verified using srcCfg.ExpectedHostKey if set
+//   - Destination host (from source): Uses StrictHostKeyChecking=accept-new
+//     which accepts new keys but rejects changed keys (TOFU behavior)
 func RsyncRemoteToRemote(ctx context.Context, srcCfg, dstCfg *Config, srcPath, dstPath string, opts *TransferOptions) (*TransferResult, error) {
 	// Validate both configs to prevent command injection
 	if err := validateConfig(srcCfg); err != nil {
@@ -235,8 +397,9 @@ func RsyncRemoteToRemote(ctx context.Context, srcCfg, dstCfg *Config, srcPath, d
 	// All arguments must be properly quoted to prevent shell injection
 	rsyncArgs := buildRsyncArgs(opts)
 
-	// Build the SSH command with quoted key path
-	sshCmd := fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no", dstCfg.Port)
+	// Build the SSH command for the destination connection
+	// Use accept-new which accepts new keys but rejects changed keys (safer than no)
+	sshCmd := fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=accept-new", dstCfg.Port)
 	rsyncArgs = append(rsyncArgs, "-e", sshCmd)
 
 	// Quote the source path
@@ -246,8 +409,8 @@ func RsyncRemoteToRemote(ctx context.Context, srcCfg, dstCfg *Config, srcPath, d
 	dstSpec := fmt.Sprintf("%s@%s:%s", dstCfg.Username, dstCfg.Host, ShellQuote(dstPath))
 	rsyncArgs = append(rsyncArgs, dstSpec)
 
-	// Connect to source and run rsync there
-	client, err := NewInsecure(srcCfg)
+	// Connect to source using proper host key verification
+	client, _, err := New(srcCfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect to source: %w", err)
 	}
@@ -292,9 +455,22 @@ func ScpPush(ctx context.Context, cfg *Config, localPath, remotePath string) err
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Capture host key and create temporary known_hosts file for scp
+	knownHostsEntry, err := captureHostKey(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("verify host key: %w", err)
+	}
+
+	knownHostsFile, err := createTempKnownHosts(knownHostsEntry)
+	if err != nil {
+		return fmt.Errorf("create known_hosts: %w", err)
+	}
+	defer os.Remove(knownHostsFile)
+
 	args := []string{
 		"-P", fmt.Sprintf("%d", cfg.Port),
-		"-o", "StrictHostKeyChecking=no",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", fmt.Sprintf("UserKnownHostsFile=%s", knownHostsFile),
 		"-i", cfg.PrivateKeyPath,
 		localPath,
 		fmt.Sprintf("%s@%s:%s", cfg.Username, cfg.Host, remotePath),
@@ -316,9 +492,22 @@ func ScpPull(ctx context.Context, cfg *Config, remotePath, localPath string) err
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Capture host key and create temporary known_hosts file for scp
+	knownHostsEntry, err := captureHostKey(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("verify host key: %w", err)
+	}
+
+	knownHostsFile, err := createTempKnownHosts(knownHostsEntry)
+	if err != nil {
+		return fmt.Errorf("create known_hosts: %w", err)
+	}
+	defer os.Remove(knownHostsFile)
+
 	args := []string{
 		"-P", fmt.Sprintf("%d", cfg.Port),
-		"-o", "StrictHostKeyChecking=no",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", fmt.Sprintf("UserKnownHostsFile=%s", knownHostsFile),
 		"-i", cfg.PrivateKeyPath,
 		fmt.Sprintf("%s@%s:%s", cfg.Username, cfg.Host, remotePath),
 		localPath,
@@ -364,9 +553,15 @@ func buildRsyncArgs(opts *TransferOptions) []string {
 	return args
 }
 
-func buildSSHCommand(cfg *Config) string {
-	// Note: StrictHostKeyChecking=no is acceptable here as connections are made
-	// to user-configured internal/trusted hosts. See comment in client.go.
+// buildSSHCommandSecure builds an SSH command with proper host key verification using a known_hosts file.
+func buildSSHCommandSecure(cfg *Config, knownHostsFile string) string {
+	return fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%s -i %s",
+		cfg.Port, ShellQuote(knownHostsFile), ShellQuote(cfg.PrivateKeyPath))
+}
+
+// buildSSHCommandInsecure builds an SSH command that skips host key verification.
+// Deprecated: Use buildSSHCommandSecure with a proper known_hosts file instead.
+func buildSSHCommandInsecure(cfg *Config) string {
 	return fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no -i %s",
 		cfg.Port, ShellQuote(cfg.PrivateKeyPath))
 }

@@ -4,39 +4,23 @@
 package ftpclient
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strings"
 
 	"github.com/jlaffaye/ftp"
+
+	"github.com/autobrr/qui/pkg/pathutil"
 )
 
-// ErrInvalidPath is returned when a path contains invalid characters or traversal attempts.
-var ErrInvalidPath = errors.New("invalid path: contains traversal or forbidden characters")
-
 // validatePath checks for path traversal attempts and forbidden characters.
+// FTP supports both absolute and relative paths.
 func validatePath(p string) error {
-	// Check for null bytes
-	if strings.ContainsRune(p, 0) {
-		return ErrInvalidPath
+	// Use shared path validation with relative paths allowed
+	if err := pathutil.ValidateRelative(p); err != nil {
+		return fmt.Errorf("invalid path: %w", err)
 	}
-
-	// Clean and check for traversal
-	cleaned := path.Clean(p)
-
-	// Check for .. components after cleaning
-	if strings.Contains(cleaned, "..") {
-		return ErrInvalidPath
-	}
-
-	// Ensure path doesn't escape root after cleaning
-	// A path starting with .. after Clean() is an escape attempt
-	if strings.HasPrefix(cleaned, "..") {
-		return ErrInvalidPath
-	}
-
 	return nil
 }
 

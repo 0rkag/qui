@@ -111,9 +111,6 @@ func New(cfg *Config) (*Client, *HostKeyInfo, error) {
 		return nil, capturedHostKey, fmt.Errorf("ssh connection failed: %w", err)
 	}
 
-	// Clear password from config after successful connection
-	cfg.Password = ""
-
 	return &Client{
 		config: cfg,
 		client: client,

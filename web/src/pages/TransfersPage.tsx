@@ -68,6 +68,7 @@ const STATE_CONFIG: Record<TransferState, { label: string; color: string; icon: 
   preparing: { label: "Preparing", color: "bg-blue-500", icon: Loader2 },
   links_creating: { label: "Processing", color: "bg-blue-500", icon: HardDrive },
   links_created: { label: "Processed", color: "bg-blue-500", icon: HardDrive },
+  verifying: { label: "Verifying", color: "bg-blue-500", icon: CheckCircle2 },
   adding_torrent: { label: "Adding Torrent", color: "bg-blue-500", icon: Server },
   torrent_added: { label: "Torrent Added", color: "bg-blue-500", icon: Server },
   deleting_source: { label: "Deleting Source", color: "bg-amber-500", icon: Trash2 },
@@ -126,7 +127,7 @@ const STATE_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: "failed", label: "Failed" },
 ]
 
-const ACTIVE_STATES: TransferState[] = ["pending", "preparing", "links_creating", "links_created", "adding_torrent", "deleting_source"]
+const ACTIVE_STATES: TransferState[] = ["pending", "preparing", "links_creating", "links_created", "verifying", "adding_torrent", "deleting_source"]
 
 // User-friendly labels for link modes
 const LINK_MODE_LABELS: Record<string, { label: string; description: string }> = {
@@ -381,7 +382,8 @@ function TransferRow({
   onCancel,
   isCancelling,
 }: TransferRowProps) {
-  const baseConfig = STATE_CONFIG[transfer.state]
+  // Defensive fallback for unknown states from backend
+  const baseConfig = STATE_CONFIG[transfer.state] ?? STATE_CONFIG.pending
   const stateDisplay = getStateDisplay(transfer.state, transfer.linkMode)
   const Icon = stateDisplay.icon
   const isActive = ACTIVE_STATES.includes(transfer.state)
@@ -480,15 +482,55 @@ function TransferRow({
 
       {/* Options */}
       <TableCell>
-        <div className="flex items-center gap-1">
-          {transfer.deleteFromSource && (
+        <div className="flex items-center gap-1 flex-wrap">
+          {transfer.sourceAction === "delete" && (
             <Tooltip>
               <TooltipTrigger>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs text-red-500 border-red-500/50">
                   Del
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent>Delete from source after transfer</TooltipContent>
+              <TooltipContent>Delete source after transfer</TooltipContent>
+            </Tooltip>
+          )}
+          {transfer.sourceAction === "pause" && (
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/50">
+                  Pause
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>Pause source after transfer</TooltipContent>
+            </Tooltip>
+          )}
+          {transfer.fileExistsAction === "skip" && (
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="outline" className="text-xs">
+                  Skip
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>Skip existing files (if identical)</TooltipContent>
+            </Tooltip>
+          )}
+          {transfer.fileExistsAction === "overwrite" && (
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="outline" className="text-xs text-amber-500 border-amber-500/50">
+                  Overwrite
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>Overwrite existing files</TooltipContent>
+            </Tooltip>
+          )}
+          {transfer.verifyTransfer && (
+            <Tooltip>
+              <TooltipTrigger>
+                <Badge variant="outline" className="text-xs text-blue-500 border-blue-500/50">
+                  Verify
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>Verify checksums after transfer</TooltipContent>
             </Tooltip>
           )}
           {transfer.preserveCategory && (
@@ -511,7 +553,7 @@ function TransferRow({
               <TooltipContent>Preserve tags</TooltipContent>
             </Tooltip>
           )}
-          {!transfer.deleteFromSource && !transfer.preserveCategory && !transfer.preserveTags && (
+          {transfer.sourceAction === "keep" && transfer.fileExistsAction === "abort" && !transfer.verifyTransfer && !transfer.preserveCategory && !transfer.preserveTags && (
             <span className="text-muted-foreground">-</span>
           )}
         </div>

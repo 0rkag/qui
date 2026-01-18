@@ -49,7 +49,9 @@ type Transfer struct {
 	TorrentName      string `json:"torrentName"`
 	State            string `json:"state"`
 	LinkMode         string `json:"linkMode,omitempty"`
-	DeleteFromSource bool   `json:"deleteFromSource"`
+	FileExistsAction string `json:"fileExistsAction"`
+	SourceAction     string `json:"sourceAction"`
+	VerifyTransfer   bool   `json:"verifyTransfer"`
 	PreserveCategory bool   `json:"preserveCategory"`
 	PreserveTags     bool   `json:"preserveTags"`
 	TargetCategory   string `json:"targetCategory,omitempty"`
@@ -230,14 +232,20 @@ func (e *TestEnv) recheckTorrent(t *testing.T, inst *QBitInstance, hash string) 
 }
 
 // StartTransfer initiates a transfer via QUI API
-func (e *TestEnv) StartTransfer(t *testing.T, sourceID, targetID int, hash string, deleteFromSource bool) *Transfer {
+// sourceAction: true = "delete", false = "keep"
+func (e *TestEnv) StartTransfer(t *testing.T, sourceID, targetID int, hash string, deleteSource bool) *Transfer {
 	t.Helper()
+
+	sourceAction := "keep"
+	if deleteSource {
+		sourceAction = "delete"
+	}
 
 	payload := map[string]any{
 		"sourceInstanceId": sourceID,
 		"targetInstanceId": targetID,
 		"torrentHash":      hash,
-		"deleteFromSource": deleteFromSource,
+		"sourceAction":     sourceAction,
 	}
 	jsonBody, _ := json.Marshal(payload)
 
@@ -256,7 +264,7 @@ func (e *TestEnv) StartTransfer(t *testing.T, sourceID, targetID int, hash strin
 	err = json.Unmarshal(body, &transfer)
 	require.NoError(t, err)
 
-	t.Logf("Started transfer %d: %s -> instance %d (deleteFromSource=%v)", transfer.ID, hash[:8], targetID, deleteFromSource)
+	t.Logf("Started transfer %d: %s -> instance %d (sourceAction=%s)", transfer.ID, hash[:8], targetID, sourceAction)
 	return &transfer
 }
 
@@ -398,11 +406,11 @@ type TransferRequest struct {
 	SourceInstanceID int               `json:"sourceInstanceId"`
 	TargetInstanceID int               `json:"targetInstanceId"`
 	TorrentHash      string            `json:"torrentHash"`
-	DeleteFromSource bool              `json:"deleteFromSource"`
+	FileExistsAction string            `json:"fileExistsAction,omitempty"` // "abort", "skip", "overwrite"
+	SourceAction     string            `json:"sourceAction,omitempty"`     // "keep", "pause", "delete"
+	VerifyTransfer   bool              `json:"verifyTransfer,omitempty"`
 	PreserveCategory bool              `json:"preserveCategory"`
 	PreserveTags     bool              `json:"preserveTags"`
-	Force            bool              `json:"force"`
-	VerifyTransfer   bool              `json:"verifyTransfer"`
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
 }
 
@@ -427,8 +435,8 @@ func (e *TestEnv) StartTransferFull(t *testing.T, req TransferRequest) *Transfer
 	err = json.Unmarshal(body, &transfer)
 	require.NoError(t, err)
 
-	t.Logf("Started transfer %d: %s -> instance %d (delete=%v, preserveCategory=%v, preserveTags=%v)",
-		transfer.ID, req.TorrentHash[:8], req.TargetInstanceID, req.DeleteFromSource, req.PreserveCategory, req.PreserveTags)
+	t.Logf("Started transfer %d: %s -> instance %d (sourceAction=%s, verify=%v)",
+		transfer.ID, req.TorrentHash[:8], req.TargetInstanceID, req.SourceAction, req.VerifyTransfer)
 	return &transfer
 }
 

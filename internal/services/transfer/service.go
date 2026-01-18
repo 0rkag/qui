@@ -147,11 +147,11 @@ func (s *Service) QueueTransfer(ctx context.Context, req *TransferRequest) (*mod
 		TorrentHash:      req.TorrentHash,
 		TorrentName:      req.TorrentHash, // Will be updated during prepare
 		State:            models.TransferStatePending,
-		DeleteFromSource: req.DeleteFromSource,
+		FileExistsAction: req.FileExistsAction,
+		SourceAction:     req.SourceAction,
+		VerifyTransfer:   req.VerifyTransfer,
 		PreserveCategory: req.PreserveCategory,
 		PreserveTags:     req.PreserveTags,
-		Force:            req.Force,
-		VerifyTransfer:   req.VerifyTransfer,
 		PathMappings:     req.PathMappings,
 	}
 
@@ -173,11 +173,11 @@ func (s *Service) MoveTorrent(ctx context.Context, req *MoveRequest) (*models.Tr
 		TargetInstanceID: req.TargetInstanceID,
 		TorrentHash:      req.Hash,
 		PathMappings:     req.PathMappings,
-		DeleteFromSource: req.DeleteFromSource,
+		FileExistsAction: req.FileExistsAction,
+		SourceAction:     req.SourceAction,
+		VerifyTransfer:   req.VerifyTransfer,
 		PreserveCategory: req.PreserveCategory,
 		PreserveTags:     req.PreserveTags,
-		Force:            req.Force,
-		VerifyTransfer:   req.VerifyTransfer,
 	})
 }
 

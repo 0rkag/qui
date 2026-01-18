@@ -87,7 +87,7 @@ func (s *Service) processTransfer(id int64) {
 	case models.TransferStateLinksCreating:
 		// Links may be partial - attempt rollback and restart
 		prep := s.buildPrepareResultFromTransfer(t, sourceInstance, targetInstance)
-		_ = executor.Rollback(ctx, t, prep)
+		s.rollbackWithLogging(ctx, t, executor, prep)
 		s.updateState(ctx, t, models.TransferStatePending, "")
 		s.doPrepare(ctx, t, executor)
 
@@ -103,7 +103,7 @@ func (s *Service) processTransfer(id int64) {
 		// Recovery: re-verify and continue
 		prep := s.buildPrepareResultFromTransfer(t, sourceInstance, targetInstance)
 		if err := executor.VerifyTransfer(ctx, t, prep); err != nil {
-			_ = executor.Rollback(ctx, t, prep)
+			s.rollbackWithLogging(ctx, t, executor, prep)
 			s.fail(ctx, t, "verification failed: "+err.Error())
 			return
 		}
@@ -118,7 +118,7 @@ func (s *Service) processTransfer(id int64) {
 		} else {
 			// Torrent wasn't added - rollback and fail
 			prep := s.buildPrepareResultFromTransfer(t, sourceInstance, targetInstance)
-			_ = executor.Rollback(ctx, t, prep)
+			s.rollbackWithLogging(ctx, t, executor, prep)
 			s.fail(ctx, t, "interrupted during add - rolled back")
 		}
 
@@ -200,7 +200,7 @@ func (s *Service) doCreateLinks(ctx context.Context, t *models.Transfer, executo
 
 	filesLinked, err := executor.CreateLinks(ctx, t, prep)
 	if err != nil {
-		_ = executor.Rollback(ctx, t, prep)
+		s.rollbackWithLogging(ctx, t, executor, prep)
 		s.fail(ctx, t, err.Error())
 		return
 	}
@@ -213,7 +213,7 @@ func (s *Service) doCreateLinks(ctx context.Context, t *models.Transfer, executo
 	t.BytesTransferred = t.BytesTotal
 
 	if err := s.store.Update(ctx, t); err != nil {
-		_ = executor.Rollback(ctx, t, prep)
+		s.rollbackWithLogging(ctx, t, executor, prep)
 		s.fail(ctx, t, fmt.Sprintf("failed to persist link progress: %v", err))
 		return
 	}
@@ -233,7 +233,7 @@ func (s *Service) doVerify(ctx context.Context, t *models.Transfer, executor Tra
 	s.updateState(ctx, t, models.TransferStateVerifying, "")
 
 	if err := executor.VerifyTransfer(ctx, t, prep); err != nil {
-		_ = executor.Rollback(ctx, t, prep)
+		s.rollbackWithLogging(ctx, t, executor, prep)
 		s.fail(ctx, t, fmt.Sprintf("verification failed: %v", err))
 		return
 	}
@@ -250,7 +250,7 @@ func (s *Service) doAddTorrent(ctx context.Context, t *models.Transfer, executor
 	if len(prep.TorrentData) == 0 {
 		torrentBytes, _, _, err := s.syncManager.ExportTorrent(ctx, t.SourceInstanceID, t.TorrentHash)
 		if err != nil {
-			_ = executor.Rollback(ctx, t, prep)
+			s.rollbackWithLogging(ctx, t, executor, prep)
 			s.fail(ctx, t, fmt.Sprintf("failed to export torrent: %v", err))
 			return
 		}
@@ -265,13 +265,15 @@ func (s *Service) doAddTorrent(ctx context.Context, t *models.Transfer, executor
 				Int64("id", t.ID).
 				Str("category", prep.Category).
 				Msg("[TRANSFER] Failed to create category, continuing without")
+			// Store warning so user knows category wasn't preserved
+			t.Error = fmt.Sprintf("warning: failed to create category %q: %v", prep.Category, err)
 			prep.Category = ""
 			t.TargetCategory = ""
 		}
 	}
 
 	if err := executor.AddTorrent(ctx, t, prep); err != nil {
-		_ = executor.Rollback(ctx, t, prep)
+		s.rollbackWithLogging(ctx, t, executor, prep)
 		s.fail(ctx, t, err.Error())
 		return
 	}
@@ -314,12 +316,30 @@ func (s *Service) doDeleteSource(ctx context.Context, t *models.Transfer, execut
 	s.markCompleted(ctx, t)
 }
 
-// continueAfterAdd handles post-add logic
+// continueAfterAdd handles post-add logic based on SourceAction
 func (s *Service) continueAfterAdd(ctx context.Context, t *models.Transfer, executor TransferExecutor) {
-	if t.DeleteFromSource {
+	switch t.SourceAction {
+	case models.SourceDelete:
 		s.doDeleteSource(ctx, t, executor)
-	} else {
+	case models.SourcePause:
+		s.doPauseSource(ctx, t)
 		s.markCompleted(ctx, t)
+	default: // SourceKeep
+		s.markCompleted(ctx, t)
+	}
+}
+
+// doPauseSource pauses the torrent on the source instance
+func (s *Service) doPauseSource(ctx context.Context, t *models.Transfer) {
+	if s.syncManager == nil {
+		return
+	}
+	if err := s.syncManager.BulkAction(ctx, t.SourceInstanceID, []string{t.TorrentHash}, "pause"); err != nil {
+		log.Warn().
+			Err(err).
+			Int64("id", t.ID).
+			Msg("[TRANSFER] Failed to pause source torrent, completing with warning")
+		t.Error = fmt.Sprintf("warning: failed to pause source: %v", err)
 	}
 }
 
@@ -384,9 +404,20 @@ func (s *Service) markCompleted(ctx context.Context, t *models.Transfer) {
 func (s *Service) checkTorrentExists(ctx context.Context, instanceID int, hash string) bool {
 	_, exists, err := s.syncManager.HasTorrentByAnyHash(ctx, instanceID, []string{hash})
 	if err != nil {
+		log.Warn().Err(err).Int("instanceID", instanceID).Str("hash", hash).Msg("[TRANSFER] Error checking if torrent exists")
 		return false
 	}
 	return exists
+}
+
+// rollbackWithLogging attempts rollback and logs any failure.
+// Returns the error for callers that need to include it in failure messages.
+func (s *Service) rollbackWithLogging(ctx context.Context, t *models.Transfer, executor TransferExecutor, prep *PrepareResult) error {
+	if err := executor.Rollback(ctx, t, prep); err != nil {
+		log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Rollback failed - orphaned files may remain on target")
+		return err
+	}
+	return nil
 }
 
 func (s *Service) waitForTorrent(ctx context.Context, instanceID int, hash string, timeout time.Duration) bool {

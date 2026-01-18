@@ -5,6 +5,8 @@ package sshclient
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -105,6 +107,11 @@ func NewPoolWithConfig(ctx context.Context, cfg PoolConfig) *Pool {
 // Get retrieves or creates an SSH client for the given config.
 // If a cached connection exists but is dead, it will be replaced with a new one.
 //
+// Host key verification behavior:
+//   - If cfg.ExpectedHostKey is set, the host key will be verified against it
+//   - If cfg.SkipHostKeyVerification is true, verification is skipped (insecure)
+//   - Otherwise, new keys are accepted (TOFU behavior)
+//
 // Note: Due to the nature of network connections, a client that passes the
 // IsAlive() check may still fail on subsequent operations if the connection
 // dies between the check and usage. Callers should handle connection errors
@@ -123,8 +130,8 @@ func (p *Pool) Get(cfg *Config) (*Client, error) {
 	}
 
 	// Create new client outside the lock to avoid blocking other goroutines
-	// Use insecure mode for pooled connections (backward compatible behavior)
-	client, err := NewInsecure(cfg)
+	// Uses the config's host key verification settings
+	client, _, err := New(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -377,5 +384,13 @@ func (p *Pool) healthCheck() {
 }
 
 func (p *Pool) configKey(cfg *Config) string {
-	return fmt.Sprintf("%s@%s:%d", cfg.Username, cfg.Host, cfg.Port)
+	// Include a hash of the private key path to ensure different keys for the same host
+	// don't share connections (security issue if they did).
+	// We use the path since different paths imply different keys.
+	keyHash := ""
+	if cfg.PrivateKeyPath != "" {
+		hash := sha256.Sum256([]byte(cfg.PrivateKeyPath))
+		keyHash = hex.EncodeToString(hash[:8]) // First 8 bytes is enough for uniqueness
+	}
+	return fmt.Sprintf("%s@%s:%d:%s", cfg.Username, cfg.Host, cfg.Port, keyHash)
 }

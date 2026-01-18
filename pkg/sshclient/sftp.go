@@ -35,9 +35,13 @@ func (c *Client) NewSFTPClient() (*SFTPClient, error) {
 
 // NewSFTPClientFromConfig creates a new SFTP client from SSH configuration.
 // The caller is responsible for closing the client when done.
-// Note: Uses insecure host key verification for backward compatibility.
+//
+// Host key verification behavior:
+//   - If cfg.ExpectedHostKey is set, the host key will be verified against it
+//   - If cfg.SkipHostKeyVerification is true, verification is skipped (insecure)
+//   - Otherwise, new keys are accepted (TOFU behavior)
 func NewSFTPClientFromConfig(cfg *Config) (*SFTPClient, error) {
-	sshClient, err := NewInsecure(cfg)
+	sshClient, _, err := New(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -227,11 +231,8 @@ func (s *SFTPClient) CopyLocalToRemote(localPath, remotePath string) error {
 		return fmt.Errorf("copy data: %w", err)
 	}
 
-	// Preserve permissions
-	if err := s.client.Chmod(remotePath, localInfo.Mode()); err != nil {
-		// Non-fatal, just log
-		return nil
-	}
+	// Preserve permissions (non-fatal if it fails)
+	_ = s.client.Chmod(remotePath, localInfo.Mode())
 
 	return nil
 }
@@ -266,11 +267,8 @@ func (s *SFTPClient) CopyRemoteToLocal(remotePath, localPath string) error {
 		return fmt.Errorf("copy data: %w", err)
 	}
 
-	// Preserve permissions
-	if err := os.Chmod(localPath, remoteInfo.Mode()); err != nil {
-		// Non-fatal
-		return nil
-	}
+	// Preserve permissions (non-fatal if it fails)
+	_ = os.Chmod(localPath, remoteInfo.Mode())
 
 	return nil
 }

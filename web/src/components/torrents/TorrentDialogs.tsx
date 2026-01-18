@@ -13,7 +13,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -2443,7 +2442,9 @@ interface MoveToInstanceDialogProps {
   }
   instances: InstanceOption[]
   onConfirm: (targetInstanceId: number, options: {
-    deleteFromSource: boolean
+    fileExistsAction: "abort" | "skip" | "overwrite"
+    sourceAction: "keep" | "pause" | "delete"
+    verifyTransfer: boolean
     preserveCategory: boolean
     preserveTags: boolean
   }) => void
@@ -2462,7 +2463,9 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
 }: MoveToInstanceDialogProps) {
   const [value, setValue] = useState<MoveInstanceValue>({
     targetInstanceId: null,
-    deleteFromSource: true,
+    fileExistsAction: "abort",
+    sourceAction: "delete",
+    verifyTransfer: false,
     preserveCategory: true,
     preserveTags: true,
   })
@@ -2473,7 +2476,9 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
     if (open && !wasOpen.current) {
       setValue({
         targetInstanceId: null,
-        deleteFromSource: true,
+        fileExistsAction: "abort",
+        sourceAction: "delete",
+        verifyTransfer: false,
         preserveCategory: true,
         preserveTags: true,
       })
@@ -2484,7 +2489,9 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
   const handleConfirm = useCallback(() => {
     if (value.targetInstanceId !== null) {
       onConfirm(value.targetInstanceId, {
-        deleteFromSource: value.deleteFromSource,
+        fileExistsAction: value.fileExistsAction,
+        sourceAction: value.sourceAction,
+        verifyTransfer: value.verifyTransfer,
         preserveCategory: value.preserveCategory,
         preserveTags: value.preserveTags,
       })

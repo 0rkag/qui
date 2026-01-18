@@ -32,7 +32,9 @@ type CreateTransferPayload struct {
 	TargetInstanceID int               `json:"targetInstanceId"`
 	TorrentHash      string            `json:"torrentHash"`
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
-	DeleteFromSource *bool             `json:"deleteFromSource,omitempty"`
+	FileExistsAction *string           `json:"fileExistsAction,omitempty"` // "abort", "skip", "overwrite"
+	SourceAction     *string           `json:"sourceAction,omitempty"`     // "keep", "pause", "delete"
+	VerifyTransfer   *bool             `json:"verifyTransfer,omitempty"`
 	PreserveCategory *bool             `json:"preserveCategory,omitempty"`
 	PreserveTags     *bool             `json:"preserveTags,omitempty"`
 }
@@ -41,7 +43,9 @@ type CreateTransferPayload struct {
 type MovePayload struct {
 	TargetInstanceID int               `json:"targetInstanceId"`
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
-	DeleteFromSource *bool             `json:"deleteFromSource,omitempty"`
+	FileExistsAction *string           `json:"fileExistsAction,omitempty"` // "abort", "skip", "overwrite"
+	SourceAction     *string           `json:"sourceAction,omitempty"`     // "keep", "pause", "delete"
+	VerifyTransfer   *bool             `json:"verifyTransfer,omitempty"`
 	PreserveCategory *bool             `json:"preserveCategory,omitempty"`
 	PreserveTags     *bool             `json:"preserveTags,omitempty"`
 }
@@ -54,9 +58,17 @@ func (h *TransfersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply defaults
-	deleteFromSource := true
-	if payload.DeleteFromSource != nil {
-		deleteFromSource = *payload.DeleteFromSource
+	fileExistsAction := models.FileExistsAbort
+	if payload.FileExistsAction != nil {
+		fileExistsAction = models.FileExistsAction(*payload.FileExistsAction)
+	}
+	sourceAction := models.SourceKeep
+	if payload.SourceAction != nil {
+		sourceAction = models.SourceAction(*payload.SourceAction)
+	}
+	verifyTransfer := false
+	if payload.VerifyTransfer != nil {
+		verifyTransfer = *payload.VerifyTransfer
 	}
 	preserveCategory := true
 	if payload.PreserveCategory != nil {
@@ -71,7 +83,9 @@ func (h *TransfersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		TargetInstanceID: payload.TargetInstanceID,
 		TorrentHash:      payload.TorrentHash,
 		PathMappings:     payload.PathMappings,
-		DeleteFromSource: deleteFromSource,
+		FileExistsAction: fileExistsAction,
+		SourceAction:     sourceAction,
+		VerifyTransfer:   verifyTransfer,
 		PreserveCategory: preserveCategory,
 		PreserveTags:     preserveTags,
 	}
@@ -211,9 +225,17 @@ func (h *TransfersHandler) MoveTorrent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply defaults
-	deleteFromSource := true
-	if payload.DeleteFromSource != nil {
-		deleteFromSource = *payload.DeleteFromSource
+	fileExistsAction := models.FileExistsAbort
+	if payload.FileExistsAction != nil {
+		fileExistsAction = models.FileExistsAction(*payload.FileExistsAction)
+	}
+	sourceAction := models.SourceKeep
+	if payload.SourceAction != nil {
+		sourceAction = models.SourceAction(*payload.SourceAction)
+	}
+	verifyTransfer := false
+	if payload.VerifyTransfer != nil {
+		verifyTransfer = *payload.VerifyTransfer
 	}
 	preserveCategory := true
 	if payload.PreserveCategory != nil {
@@ -229,7 +251,9 @@ func (h *TransfersHandler) MoveTorrent(w http.ResponseWriter, r *http.Request) {
 		TargetInstanceID: payload.TargetInstanceID,
 		Hash:             hash,
 		PathMappings:     payload.PathMappings,
-		DeleteFromSource: deleteFromSource,
+		FileExistsAction: fileExistsAction,
+		SourceAction:     sourceAction,
+		VerifyTransfer:   verifyTransfer,
 		PreserveCategory: preserveCategory,
 		PreserveTags:     preserveTags,
 	}

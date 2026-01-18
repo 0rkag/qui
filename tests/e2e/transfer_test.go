@@ -80,8 +80,8 @@ func TestTransfer_SharedVolume(t *testing.T) {
 	env.DeleteTorrent(t, qbit2, hash)
 }
 
-// TestTransfer_DeleteFromSource tests that source torrent is deleted after transfer
-func TestTransfer_DeleteFromSource(t *testing.T) {
+// TestTransfer_DeleteSource tests that source torrent is deleted after transfer
+func TestTransfer_DeleteSource(t *testing.T) {
 	require.NotNil(t, env, "test environment not initialized")
 
 	qbit1 := env.GetQBitInstance("qbit1")
@@ -96,10 +96,10 @@ func TestTransfer_DeleteFromSource(t *testing.T) {
 	// Wait for download to complete
 	env.WaitForDownload(t, qbit1, hash, 2*time.Minute)
 
-	// Transfer to qbit2 with deleteFromSource=true
+	// Transfer to qbit2 with sourceAction=delete
 	transfer := env.StartTransfer(t, qbit1.ID, qbit2.ID, hash, true)
 	require.NotNil(t, transfer)
-	assert.True(t, transfer.DeleteFromSource)
+	assert.Equal(t, "delete", transfer.SourceAction)
 
 	// Wait for transfer to complete
 	result := env.WaitForTransfer(t, transfer.ID, 5*time.Minute)
@@ -115,7 +115,7 @@ func TestTransfer_DeleteFromSource(t *testing.T) {
 	env.DeleteTorrent(t, qbit2, hash)
 }
 
-// TestTransfer_KeepSource tests that source torrent is kept when deleteFromSource=false
+// TestTransfer_KeepSource tests that source torrent is kept when sourceAction=keep
 func TestTransfer_KeepSource(t *testing.T) {
 	require.NotNil(t, env, "test environment not initialized")
 
@@ -131,10 +131,10 @@ func TestTransfer_KeepSource(t *testing.T) {
 	// Wait for download
 	env.WaitForDownload(t, qbit1, hash, 2*time.Minute)
 
-	// Transfer with deleteFromSource=false
+	// Transfer with sourceAction=keep
 	transfer := env.StartTransfer(t, qbit1.ID, qbit2.ID, hash, false)
 	require.NotNil(t, transfer)
-	assert.False(t, transfer.DeleteFromSource)
+	assert.Equal(t, "keep", transfer.SourceAction)
 
 	// Wait for completion
 	result := env.WaitForTransfer(t, transfer.ID, 5*time.Minute)
@@ -213,7 +213,7 @@ func TestTransfer_WithVerification(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit3.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction:     "keep",
 		VerifyTransfer:   true,
 	})
 	require.NotNil(t, transfer)

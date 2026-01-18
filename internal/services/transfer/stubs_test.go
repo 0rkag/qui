@@ -409,10 +409,10 @@ func withState(state models.TransferState) func(*models.Transfer) {
 	}
 }
 
-// withDeleteFromSource sets the delete from source flag
-func withDeleteFromSource(delete bool) func(*models.Transfer) {
+// withSourceAction sets the source action
+func withSourceAction(action models.SourceAction) func(*models.Transfer) {
 	return func(t *models.Transfer) {
-		t.DeleteFromSource = delete
+		t.SourceAction = action
 	}
 }
 

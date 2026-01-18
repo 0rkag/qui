@@ -46,19 +46,24 @@ func TestContinueAfterAdd(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name             string
-		deleteFromSource bool
-		expectDelete     bool
+		name         string
+		sourceAction models.SourceAction
+		expectDelete bool
 	}{
 		{
-			name:             "delete from source enabled - calls delete",
-			deleteFromSource: true,
-			expectDelete:     true,
+			name:         "source action delete - calls delete",
+			sourceAction: models.SourceDelete,
+			expectDelete: true,
 		},
 		{
-			name:             "delete from source disabled - completes directly",
-			deleteFromSource: false,
-			expectDelete:     false,
+			name:         "source action keep - completes directly",
+			sourceAction: models.SourceKeep,
+			expectDelete: false,
+		},
+		{
+			name:         "source action pause - completes without delete",
+			sourceAction: models.SourcePause,
+			expectDelete: false,
 		},
 	}
 
@@ -66,7 +71,7 @@ func TestContinueAfterAdd(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			transfer := newTestTransfer(
 				withState(models.TransferStateTorrentAdded),
-				withDeleteFromSource(tt.deleteFromSource),
+				withSourceAction(tt.sourceAction),
 			)
 
 			executor := newMockExecutor()
@@ -90,7 +95,7 @@ func TestContinueAfterAdd(t *testing.T) {
 func TestDoDeleteSource_Success(t *testing.T) {
 	ctx := context.Background()
 
-	transfer := newTestTransfer(withState(models.TransferStateDeletingSource), withDeleteFromSource(true))
+	transfer := newTestTransfer(withState(models.TransferStateDeletingSource), withSourceAction(models.SourceDelete))
 
 	executor := newMockExecutor()
 
@@ -108,7 +113,7 @@ func TestDoDeleteSource_Success(t *testing.T) {
 func TestDoDeleteSource_FailureCompletesWithWarning(t *testing.T) {
 	ctx := context.Background()
 
-	transfer := newTestTransfer(withState(models.TransferStateDeletingSource), withDeleteFromSource(true))
+	transfer := newTestTransfer(withState(models.TransferStateDeletingSource), withSourceAction(models.SourceDelete))
 
 	executor := newMockExecutor()
 	executor.deleteSourceFunc = func(ctx context.Context, t *models.Transfer) error {

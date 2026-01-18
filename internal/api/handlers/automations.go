@@ -270,6 +270,11 @@ func (h *AutomationHandler) validatePayload(ctx context.Context, instanceID int,
 		return http.StatusBadRequest, "Category action requires a category name", errors.New("category name required")
 	}
 
+	// Validate move instance action has a valid target instance ID
+	if payload.Conditions.MoveInstance != nil && payload.Conditions.MoveInstance.Enabled && payload.Conditions.MoveInstance.TargetInstanceID <= 0 {
+		return http.StatusBadRequest, "Move Instance action requires a valid target instance", errors.New("target instance required")
+	}
+
 	// Validate delete is standalone - it cannot be combined with any other action
 	hasDelete := payload.Conditions.Delete != nil && payload.Conditions.Delete.Enabled
 	if hasDelete {
@@ -280,7 +285,8 @@ func (h *AutomationHandler) validatePayload(ctx context.Context, instanceID int,
 			(payload.Conditions.ShareLimits != nil && payload.Conditions.ShareLimits.Enabled) ||
 			(payload.Conditions.Pause != nil && payload.Conditions.Pause.Enabled) ||
 			(payload.Conditions.Tag != nil && payload.Conditions.Tag.Enabled) ||
-			(payload.Conditions.Category != nil && payload.Conditions.Category.Enabled)
+			(payload.Conditions.Category != nil && payload.Conditions.Category.Enabled) ||
+			(payload.Conditions.MoveInstance != nil && payload.Conditions.MoveInstance.Enabled)
 		if hasOtherAction {
 			return http.StatusBadRequest, "Delete action cannot be combined with other actions", errors.New("delete must be standalone")
 		}

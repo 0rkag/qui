@@ -2079,6 +2079,7 @@ export type TransferState =
   | "preparing"
   | "links_creating"
   | "links_created"
+  | "verifying"
   | "adding_torrent"
   | "torrent_added"
   | "deleting_source"
@@ -2086,6 +2087,12 @@ export type TransferState =
   | "failed"
   | "rolled_back"
   | "cancelled"
+
+// FileExistsAction determines behavior when target file already exists
+export type FileExistsAction = "abort" | "skip" | "overwrite"
+
+// SourceAction determines what happens to source torrent after transfer
+export type SourceAction = "keep" | "pause" | "delete"
 
 export interface Transfer {
   id: number
@@ -2097,7 +2104,9 @@ export interface Transfer {
   sourceSavePath?: string
   targetSavePath?: string
   linkMode?: "hardlink" | "reflink" | "direct" | "transfer" | "copy"
-  deleteFromSource: boolean
+  fileExistsAction: FileExistsAction
+  sourceAction: SourceAction
+  verifyTransfer: boolean
   preserveCategory: boolean
   preserveTags: boolean
   targetCategory?: string
@@ -2116,7 +2125,9 @@ export interface Transfer {
 export interface MovePayload {
   targetInstanceId: number
   pathMappings?: Record<string, string>
-  deleteFromSource?: boolean
+  fileExistsAction?: FileExistsAction
+  sourceAction?: SourceAction
+  verifyTransfer?: boolean
   preserveCategory?: boolean
   preserveTags?: boolean
 }

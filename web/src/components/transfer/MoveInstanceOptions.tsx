@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { FileExistsAction, SourceAction } from "@/types"
 
 // Helper to determine if transfer is possible between two instances
 function canTransferBetween(
@@ -55,7 +56,9 @@ export interface InstanceOption {
 
 export interface MoveInstanceValue {
   targetInstanceId: number | null
-  deleteFromSource: boolean
+  fileExistsAction: FileExistsAction
+  sourceAction: SourceAction
+  verifyTransfer: boolean
   preserveCategory: boolean
   preserveTags: boolean
 }
@@ -98,8 +101,9 @@ export const MoveInstanceOptions = memo(function MoveInstanceOptions({
       return sourceCapabilities
     }
     const current = instances.find((i) => i.id === sourceInstanceId)
+    // Use same fallback logic as target: transferCapabilities?.local ?? hasLocalFilesystemAccess
     return {
-      local: current?.hasLocalFilesystemAccess ?? false,
+      local: current?.transferCapabilities?.local ?? current?.hasLocalFilesystemAccess ?? false,
       ssh: current?.transferCapabilities?.ssh ?? false,
     }
   }, [sourceCapabilities, instances, sourceInstanceId])
@@ -134,8 +138,16 @@ export const MoveInstanceOptions = memo(function MoveInstanceOptions({
     })
   }
 
-  const handleDeleteFromSourceChange = (checked: boolean) => {
-    onChange({ ...value, deleteFromSource: checked })
+  const handleFileExistsActionChange = (action: FileExistsAction) => {
+    onChange({ ...value, fileExistsAction: action })
+  }
+
+  const handleSourceActionChange = (action: SourceAction) => {
+    onChange({ ...value, sourceAction: action })
+  }
+
+  const handleVerifyTransferChange = (checked: boolean) => {
+    onChange({ ...value, verifyTransfer: checked })
   }
 
   const handlePreserveCategoryChange = (checked: boolean) => {
@@ -196,33 +208,109 @@ export const MoveInstanceOptions = memo(function MoveInstanceOptions({
 
       {/* Options */}
       <div className={isCompact ? "flex flex-col gap-2" : "space-y-3"}>
-        {/* Delete from source */}
+        {/* File exists action */}
+        <div className={isCompact ? "space-y-1" : "space-y-1.5"}>
+          <Label className={isCompact ? "text-xs" : undefined}>If file exists</Label>
+          {showDescriptions && !isCompact && (
+            <p className="text-xs text-muted-foreground">
+              What to do if a file already exists at the target
+            </p>
+          )}
+          <Select
+            value={value.fileExistsAction}
+            onValueChange={(v) => handleFileExistsActionChange(v as FileExistsAction)}
+          >
+            <SelectTrigger className={isCompact ? "w-fit min-w-[140px]" : "w-[200px]"}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="abort">
+                <div className="flex flex-col">
+                  <span>Abort</span>
+                  {!isCompact && <span className="text-xs text-muted-foreground">Fail if file exists</span>}
+                </div>
+              </SelectItem>
+              <SelectItem value="skip">
+                <div className="flex flex-col">
+                  <span>Skip identical</span>
+                  {!isCompact && <span className="text-xs text-muted-foreground">Skip if same size, error if different</span>}
+                </div>
+              </SelectItem>
+              <SelectItem value="overwrite">
+                <div className="flex flex-col">
+                  <span>Overwrite</span>
+                  {!isCompact && <span className="text-xs text-muted-foreground">Replace existing files</span>}
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Source action */}
+        <div className={isCompact ? "space-y-1" : "space-y-1.5"}>
+          <Label className={isCompact ? "text-xs" : undefined}>After transfer</Label>
+          {showDescriptions && !isCompact && (
+            <p className="text-xs text-muted-foreground">
+              What to do with the source torrent after transfer completes
+            </p>
+          )}
+          <Select
+            value={value.sourceAction}
+            onValueChange={(v) => handleSourceActionChange(v as SourceAction)}
+          >
+            <SelectTrigger className={isCompact ? "w-fit min-w-[140px]" : "w-[200px]"}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="keep">
+                <div className="flex flex-col">
+                  <span>Keep seeding</span>
+                  {!isCompact && <span className="text-xs text-muted-foreground">Leave source torrent running</span>}
+                </div>
+              </SelectItem>
+              <SelectItem value="pause">
+                <div className="flex flex-col">
+                  <span>Pause source</span>
+                  {!isCompact && <span className="text-xs text-muted-foreground">Pause torrent on source instance</span>}
+                </div>
+              </SelectItem>
+              <SelectItem value="delete">
+                <div className="flex flex-col">
+                  <span>Delete source</span>
+                  {!isCompact && <span className="text-xs text-muted-foreground">Remove torrent and files from source</span>}
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Verify transfer */}
         <div className={isCompact ? "flex items-center gap-2" : "flex items-center justify-between"}>
           {isCompact ? (
             <>
               <Switch
-                id="move-delete-from-source"
-                checked={value.deleteFromSource}
-                onCheckedChange={handleDeleteFromSourceChange}
+                id="move-verify-transfer"
+                checked={value.verifyTransfer}
+                onCheckedChange={handleVerifyTransferChange}
               />
-              <Label htmlFor="move-delete-from-source" className="text-sm cursor-pointer whitespace-nowrap">
-                Delete from source
+              <Label htmlFor="move-verify-transfer" className="text-sm cursor-pointer whitespace-nowrap">
+                Verify transfer
               </Label>
             </>
           ) : (
             <>
               <div className="space-y-0.5">
-                <Label htmlFor="move-delete-from-source">Delete from source</Label>
+                <Label htmlFor="move-verify-transfer">Verify transfer</Label>
                 {showDescriptions && (
                   <p className="text-xs text-muted-foreground">
-                    Remove the torrent from the source instance after transfer
+                    Verify checksums after transfer (slower but safer)
                   </p>
                 )}
               </div>
               <Switch
-                id="move-delete-from-source"
-                checked={value.deleteFromSource}
-                onCheckedChange={handleDeleteFromSourceChange}
+                id="move-verify-transfer"
+                checked={value.verifyTransfer}
+                onCheckedChange={handleVerifyTransferChange}
               />
             </>
           )}
