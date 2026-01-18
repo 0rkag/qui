@@ -4,18 +4,40 @@
 package sshclient
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 )
 
+// PoolConfig holds configuration for the connection pool.
+type PoolConfig struct {
+	MaxIdleTime         time.Duration // Maximum time a connection can be idle (default 5m)
+	CleanupInterval     time.Duration // Interval between cleanup runs (default 1m)
+	MaxSize             int           // Maximum number of connections in the pool (default 100)
+	HealthCheckInterval time.Duration // Interval between health checks (default 2m)
+}
+
+// DefaultPoolConfig returns the default pool configuration.
+func DefaultPoolConfig() PoolConfig {
+	return PoolConfig{
+		MaxIdleTime:         5 * time.Minute,
+		CleanupInterval:     time.Minute,
+		MaxSize:             100,
+		HealthCheckInterval: 2 * time.Minute,
+	}
+}
+
 // Pool manages a pool of SSH connections for reuse.
 type Pool struct {
 	mu       sync.Mutex
 	clients  map[string]*pooledClient
-	maxIdle  time.Duration
+	config   PoolConfig
 	cleanupT *time.Ticker
-	done     chan struct{}
+	healthT  *time.Ticker
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
 }
 
 type pooledClient struct {
@@ -23,21 +45,59 @@ type pooledClient struct {
 	lastUsed time.Time
 }
 
-// NewPool creates a new connection pool.
+// NewPool creates a new connection pool with the given max idle time.
+// Use 0 for default idle time (5 minutes).
 func NewPool(maxIdleTime time.Duration) *Pool {
-	if maxIdleTime == 0 {
-		maxIdleTime = 5 * time.Minute
+	cfg := DefaultPoolConfig()
+	if maxIdleTime > 0 {
+		cfg.MaxIdleTime = maxIdleTime
 	}
+	return NewPoolWithConfig(context.Background(), cfg)
+}
+
+// NewPoolWithContext creates a new connection pool with a context for cancellation.
+func NewPoolWithContext(ctx context.Context, maxIdleTime time.Duration) *Pool {
+	cfg := DefaultPoolConfig()
+	if maxIdleTime > 0 {
+		cfg.MaxIdleTime = maxIdleTime
+	}
+	return NewPoolWithConfig(ctx, cfg)
+}
+
+// NewPoolWithConfig creates a new connection pool with full configuration.
+func NewPoolWithConfig(ctx context.Context, cfg PoolConfig) *Pool {
+	// Apply defaults for zero values
+	if cfg.MaxIdleTime == 0 {
+		cfg.MaxIdleTime = 5 * time.Minute
+	}
+	if cfg.CleanupInterval == 0 {
+		cfg.CleanupInterval = time.Minute
+	}
+	if cfg.MaxSize == 0 {
+		cfg.MaxSize = 100
+	}
+	if cfg.HealthCheckInterval == 0 {
+		cfg.HealthCheckInterval = 2 * time.Minute
+	}
+
+	poolCtx, poolCancel := context.WithCancel(ctx)
 
 	p := &Pool{
 		clients: make(map[string]*pooledClient),
-		maxIdle: maxIdleTime,
-		done:    make(chan struct{}),
+		config:  cfg,
+		ctx:     poolCtx,
+		cancel:  poolCancel,
 	}
 
 	// Start cleanup goroutine
-	p.cleanupT = time.NewTicker(time.Minute)
+	p.cleanupT = time.NewTicker(cfg.CleanupInterval)
+	p.wg.Add(1)
 	go p.cleanupLoop()
+
+	// Start health check goroutine
+	p.healthT = time.NewTicker(cfg.HealthCheckInterval)
+	p.wg.Add(1)
+	go p.healthCheckLoop()
 
 	return p
 }
@@ -63,7 +123,8 @@ func (p *Pool) Get(cfg *Config) (*Client, error) {
 	}
 
 	// Create new client outside the lock to avoid blocking other goroutines
-	client, err := New(cfg)
+	// Use insecure mode for pooled connections (backward compatible behavior)
+	client, err := NewInsecure(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -116,11 +177,38 @@ func (p *Pool) storeIfAbsent(key string, client *Client) *Client {
 		go pc.client.Close()
 	}
 
+	// Enforce max pool size - evict oldest idle connection if at limit
+	if len(p.clients) >= p.config.MaxSize {
+		p.evictOldest()
+	}
+
 	p.clients[key] = &pooledClient{
 		client:   client,
 		lastUsed: time.Now(),
 	}
 	return nil
+}
+
+// evictOldest removes the oldest (least recently used) connection from the pool.
+// Must be called with mu held.
+func (p *Pool) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+
+	for key, pc := range p.clients {
+		if oldestKey == "" || pc.lastUsed.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = pc.lastUsed
+		}
+	}
+
+	if oldestKey != "" {
+		if pc, ok := p.clients[oldestKey]; ok {
+			delete(p.clients, oldestKey)
+			// Close asynchronously to avoid blocking
+			go pc.client.Close()
+		}
+	}
 }
 
 // Release marks a client as no longer in use.
@@ -132,9 +220,17 @@ func (p *Pool) Release(_ *Client) {
 
 // Close closes all connections and stops the pool.
 func (p *Pool) Close() error {
-	close(p.done)
-	p.cleanupT.Stop()
+	// Cancel context to signal goroutines to stop
+	p.cancel()
 
+	// Stop tickers
+	p.cleanupT.Stop()
+	p.healthT.Stop()
+
+	// Wait for goroutines to finish
+	p.wg.Wait()
+
+	// Now close all connections
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -166,6 +262,30 @@ func (p *Pool) Remove(cfg *Config) error {
 	return nil
 }
 
+// InvalidateHost removes all connections to a specific host:port.
+// Use this when a host's key has changed and connections need to be re-established.
+func (p *Pool) InvalidateHost(host string, port int) {
+	suffix := fmt.Sprintf("@%s:%d", host, port)
+
+	p.mu.Lock()
+	var toClose []*Client
+	for key, pc := range p.clients {
+		// Check if the key ends with @host:port
+		if len(key) > len(suffix) && key[len(key)-len(suffix):] == suffix {
+			toClose = append(toClose, pc.client)
+			delete(p.clients, key)
+		}
+	}
+	p.mu.Unlock()
+
+	// Close connections outside the lock
+	for _, client := range toClose {
+		if client != nil {
+			client.Close()
+		}
+	}
+}
+
 // Stats returns pool statistics.
 type PoolStats struct {
 	ActiveConnections int
@@ -190,12 +310,25 @@ func (p *Pool) Stats() PoolStats {
 }
 
 func (p *Pool) cleanupLoop() {
+	defer p.wg.Done()
 	for {
 		select {
-		case <-p.done:
+		case <-p.ctx.Done():
 			return
 		case <-p.cleanupT.C:
 			p.cleanup()
+		}
+	}
+}
+
+func (p *Pool) healthCheckLoop() {
+	defer p.wg.Done()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-p.healthT.C:
+			p.healthCheck()
 		}
 	}
 }
@@ -207,7 +340,7 @@ func (p *Pool) cleanup() {
 	p.mu.Lock()
 	now := time.Now()
 	for key, pc := range p.clients {
-		if now.Sub(pc.lastUsed) > p.maxIdle {
+		if now.Sub(pc.lastUsed) > p.config.MaxIdleTime {
 			toClose = append(toClose, pc.client)
 			delete(p.clients, key)
 		}
@@ -215,6 +348,27 @@ func (p *Pool) cleanup() {
 	p.mu.Unlock()
 
 	// Close connections outside the lock to avoid blocking
+	for _, client := range toClose {
+		if client != nil {
+			client.Close()
+		}
+	}
+}
+
+func (p *Pool) healthCheck() {
+	// Check health of all connections and remove dead ones
+	var toClose []*Client
+
+	p.mu.Lock()
+	for key, pc := range p.clients {
+		if !pc.client.IsAlive() {
+			toClose = append(toClose, pc.client)
+			delete(p.clients, key)
+		}
+	}
+	p.mu.Unlock()
+
+	// Close dead connections outside the lock
 	for _, client := range toClose {
 		if client != nil {
 			client.Close()

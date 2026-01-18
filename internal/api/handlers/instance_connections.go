@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -75,6 +76,8 @@ type sshTestParams struct {
 	Username       string
 	Password       string
 	PrivateKeyPath string
+	// Host key verification (TOFU)
+	ExpectedHostKey *sshclient.HostKeyInfo // If set, verify the host key matches
 }
 
 // doSSHConnectionTest performs SSH connection test and returns the result.
@@ -95,11 +98,25 @@ func doSSHConnectionTest(ctx context.Context, params sshTestParams) ConnectionTe
 		Username:       params.Username,
 		Password:       params.Password,
 		PrivateKeyPath: params.PrivateKeyPath,
+		ExpectedHostKey: params.ExpectedHostKey,
 	}
 
-	client, err := sshclient.New(cfg)
+	client, hostKeyInfo, err := sshclient.New(cfg)
 	if err != nil {
 		log.Debug().Err(err).Str("host", params.Host).Msg("connections: SSH test failed")
+
+		// Check if this is a host key mismatch error
+		var hostKeyErr *sshclient.HostKeyError
+		if errors.As(err, &hostKeyErr) {
+			return ConnectionTestResult{
+				Success:            false,
+				Message:            "Host key mismatch: the server's key has changed",
+				Details:            fmt.Sprintf("Expected: %s, Got: %s", hostKeyErr.Expected, hostKeyErr.Actual),
+				HostKeyFingerprint: hostKeyErr.Actual,
+				HostKeyMismatch:    true,
+			}
+		}
+
 		return ConnectionTestResult{
 			Success: false,
 			Message: sanitizeSSHError(err),
@@ -107,22 +124,28 @@ func doSSHConnectionTest(ctx context.Context, params sshTestParams) ConnectionTe
 	}
 	defer client.Close()
 
+	// Build result with host key info for TOFU
+	result := ConnectionTestResult{
+		Success: true,
+	}
+	if hostKeyInfo != nil {
+		result.HostKeyFingerprint = hostKeyInfo.Fingerprint
+		result.HostKeyAlgorithm = hostKeyInfo.Algorithm
+	}
+
 	_, err = client.Exec(ctx, "echo 'Connection successful'")
 	if err != nil {
 		log.Debug().Err(err).Str("host", params.Host).Msg("connections: SSH command execution failed")
-		return ConnectionTestResult{
-			Success: false,
-			Message: "Connection established but command execution failed",
-		}
+		result.Success = false
+		result.Message = "Connection established but command execution failed"
+		return result
 	}
 
 	caps, err := client.CheckCapabilities(ctx)
 	if err != nil {
 		log.Warn().Err(err).Str("host", params.Host).Msg("connections: failed to check SSH capabilities")
-		return ConnectionTestResult{
-			Success: true,
-			Message: "Connection successful (capability detection failed)",
-		}
+		result.Message = "Connection successful (capability detection failed)"
+		return result
 	}
 
 	message := "Connection successful"
@@ -132,11 +155,9 @@ func doSSHConnectionTest(ctx context.Context, params sshTestParams) ConnectionTe
 		message += " • rsync not found (will use SFTP)"
 	}
 
-	return ConnectionTestResult{
-		Success:         true,
-		Message:         message,
-		SSHCapabilities: caps,
-	}
+	result.Message = message
+	result.SSHCapabilities = caps
+	return result
 }
 
 // ftpTestParams holds parameters for FTP connection testing.
@@ -146,6 +167,7 @@ type ftpTestParams struct {
 	Username       string
 	Password       string
 	ConnectionType string // ssh_auto, ftp_explicit, etc.
+	TLSSkipVerify  bool   // Skip TLS certificate verification
 }
 
 // doFTPConnectionTest performs FTP connection test and returns the result.
@@ -171,11 +193,12 @@ func doFTPConnectionTest(params ftpTestParams) ConnectionTestResult {
 	}
 
 	cfg := &ftpclient.Config{
-		Host:     params.Host,
-		Port:     params.Port,
-		Username: params.Username,
-		Password: params.Password,
-		TLSMode:  tlsMode,
+		Host:          params.Host,
+		Port:          params.Port,
+		Username:      params.Username,
+		Password:      params.Password,
+		TLSMode:       tlsMode,
+		SkipTLSVerify: params.TLSSkipVerify,
 	}
 
 	client, err := ftpclient.New(cfg)
@@ -235,6 +258,7 @@ type CreateConnectionPayload struct {
 	Password       string `json:"password,omitempty"`
 	PrivateKeyPath string `json:"privateKeyPath,omitempty"`
 	Enabled        *bool  `json:"enabled,omitempty"`
+	TLSSkipVerify  bool   `json:"tlsSkipVerify,omitempty"` // Skip TLS cert verification for FTP
 }
 
 // UpdateConnectionPayload is the request body for updating a connection.
@@ -245,6 +269,7 @@ type UpdateConnectionPayload struct {
 	Password       string `json:"password,omitempty"` // Optional on update
 	PrivateKeyPath string `json:"privateKeyPath,omitempty"`
 	Enabled        *bool  `json:"enabled,omitempty"`
+	TLSSkipVerify  *bool  `json:"tlsSkipVerify,omitempty"` // Skip TLS cert verification for FTP
 }
 
 // TestConnectionPayload is the request body for testing a connection.
@@ -255,6 +280,7 @@ type TestConnectionPayload struct {
 	Username       string `json:"username"`
 	Password       string `json:"password,omitempty"`
 	PrivateKeyPath string `json:"privateKeyPath,omitempty"`
+	TLSSkipVerify  bool   `json:"tlsSkipVerify,omitempty"` // Skip TLS cert verification for FTP
 }
 
 // ConnectionTestResult is the response for connection testing.
@@ -264,6 +290,10 @@ type ConnectionTestResult struct {
 	Details         string                   `json:"details,omitempty"`
 	SSHCapabilities *sshclient.Capabilities  `json:"sshCapabilities,omitempty"`
 	FTPCapabilities *ftpclient.Capabilities  `json:"ftpCapabilities,omitempty"`
+	// SSH Host Key info (for TOFU - Trust On First Use)
+	HostKeyFingerprint string `json:"hostKeyFingerprint,omitempty"`
+	HostKeyAlgorithm   string `json:"hostKeyAlgorithm,omitempty"`
+	HostKeyMismatch    bool   `json:"hostKeyMismatch,omitempty"` // True if key changed from stored value
 }
 
 // List handles GET /api/instances/{instanceID}/connections
@@ -346,6 +376,7 @@ func (h *InstanceConnectionsHandler) Create(w http.ResponseWriter, r *http.Reque
 		Password:       payload.Password,
 		PrivateKeyPath: payload.PrivateKeyPath,
 		Enabled:        enabled,
+		TLSSkipVerify:  payload.TLSSkipVerify,
 	}
 
 	created, err := h.store.Create(r.Context(), conn)
@@ -452,6 +483,9 @@ func (h *InstanceConnectionsHandler) Update(w http.ResponseWriter, r *http.Reque
 	existing.PrivateKeyPath = payload.PrivateKeyPath
 	if payload.Enabled != nil {
 		existing.Enabled = *payload.Enabled
+	}
+	if payload.TLSSkipVerify != nil {
+		existing.TLSSkipVerify = *payload.TLSSkipVerify
 	}
 
 	if err := h.store.Update(r.Context(), existing); err != nil {
@@ -574,6 +608,7 @@ func (h *InstanceConnectionsHandler) testFTPConnection(w http.ResponseWriter, _ 
 		Username:       payload.Username,
 		Password:       payload.Password,
 		ConnectionType: payload.Type,
+		TLSSkipVerify:  payload.TLSSkipVerify,
 	})
 	RespondJSON(w, http.StatusOK, result)
 }
@@ -630,13 +665,44 @@ func (h *InstanceConnectionsHandler) testExistingSSH(w http.ResponseWriter, r *h
 	}
 
 	ctx := r.Context()
+
+	// Build expected host key from stored values (TOFU)
+	var expectedHostKey *sshclient.HostKeyInfo
+	if conn.HostKeyFingerprint != nil && *conn.HostKeyFingerprint != "" {
+		alg := ""
+		if conn.HostKeyAlgorithm != nil {
+			alg = *conn.HostKeyAlgorithm
+		}
+		expectedHostKey = &sshclient.HostKeyInfo{
+			Fingerprint: *conn.HostKeyFingerprint,
+			Algorithm:   alg,
+		}
+	}
+
 	result := doSSHConnectionTest(ctx, sshTestParams{
-		Host:           conn.Host,
-		Port:           conn.Port,
-		Username:       conn.Username,
-		Password:       password,
-		PrivateKeyPath: conn.PrivateKeyPath,
+		Host:            conn.Host,
+		Port:            conn.Port,
+		Username:        conn.Username,
+		Password:        password,
+		PrivateKeyPath:  conn.PrivateKeyPath,
+		ExpectedHostKey: expectedHostKey,
 	})
+
+	// If successful and we got a new host key, store it (TOFU - Trust On First Use)
+	if result.Success && result.HostKeyFingerprint != "" {
+		// Only update if we didn't have a key before (first use)
+		if conn.HostKeyFingerprint == nil || *conn.HostKeyFingerprint == "" {
+			if err := h.store.UpdateHostKey(ctx, conn.ID, result.HostKeyFingerprint, result.HostKeyAlgorithm); err != nil {
+				log.Warn().Err(err).Int64("connID", conn.ID).Msg("connections: failed to save host key")
+			} else {
+				log.Info().
+					Int64("connID", conn.ID).
+					Str("fingerprint", result.HostKeyFingerprint).
+					Str("algorithm", result.HostKeyAlgorithm).
+					Msg("connections: saved SSH host key (TOFU)")
+			}
+		}
+	}
 
 	// Save capabilities to database if test was successful and we got caps
 	if result.Success && result.SSHCapabilities != nil {
@@ -673,6 +739,80 @@ func (h *InstanceConnectionsHandler) testExistingFTP(w http.ResponseWriter, _ *h
 		Username:       conn.Username,
 		Password:       password,
 		ConnectionType: conn.Type,
+		TLSSkipVerify:  conn.TLSSkipVerify,
 	})
 	RespondJSON(w, http.StatusOK, result)
+}
+
+// AcceptHostKeyPayload is the request body for accepting a new host key.
+type AcceptHostKeyPayload struct {
+	Fingerprint string `json:"fingerprint"` // The new host key fingerprint to accept
+	Algorithm   string `json:"algorithm"`   // The key algorithm (e.g., "ssh-ed25519")
+}
+
+// AcceptHostKey handles POST /api/instances/{instanceID}/connections/{id}/accept-host-key
+// This endpoint allows accepting a new host key when there's a mismatch (key changed).
+func (h *InstanceConnectionsHandler) AcceptHostKey(w http.ResponseWriter, r *http.Request) {
+	instanceID, ok := parseIntParam(w, r, "instanceID", "Invalid instance ID")
+	if !ok {
+		return
+	}
+
+	id, ok := parseInt64Param(w, r, "id", "Invalid connection ID")
+	if !ok {
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+
+	var payload AcceptHostKeyPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Warn().Err(err).Msg("connections: failed to decode accept-host-key payload")
+		RespondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if payload.Fingerprint == "" {
+		RespondError(w, http.StatusBadRequest, "Fingerprint is required")
+		return
+	}
+
+	// Verify connection exists and belongs to instance
+	conn, err := h.store.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, models.ErrConnectionNotFound) {
+			RespondError(w, http.StatusNotFound, "Connection not found")
+			return
+		}
+		log.Error().Err(err).Int64("id", id).Msg("connections: failed to get connection")
+		RespondError(w, http.StatusInternalServerError, "Failed to get connection")
+		return
+	}
+
+	if conn.InstanceID != instanceID {
+		RespondError(w, http.StatusNotFound, "Connection not found")
+		return
+	}
+
+	if !models.IsSSHType(conn.Type) {
+		RespondError(w, http.StatusBadRequest, "Host key acceptance is only valid for SSH connections")
+		return
+	}
+
+	// Update the host key
+	if err := h.store.UpdateHostKey(r.Context(), id, payload.Fingerprint, payload.Algorithm); err != nil {
+		log.Error().Err(err).Int64("id", id).Msg("connections: failed to update host key")
+		RespondError(w, http.StatusInternalServerError, "Failed to update host key")
+		return
+	}
+
+	log.Info().
+		Int64("connID", id).
+		Str("fingerprint", payload.Fingerprint).
+		Str("algorithm", payload.Algorithm).
+		Msg("connections: accepted new SSH host key")
+
+	RespondJSON(w, http.StatusOK, map[string]string{
+		"message": "Host key accepted",
+	})
 }

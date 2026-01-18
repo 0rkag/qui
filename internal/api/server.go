@@ -45,10 +45,11 @@ import (
 )
 
 type Server struct {
-	server  *http.Server
-	logger  zerolog.Logger
-	config  *config.AppConfig
-	version string
+	server      *http.Server
+	logger      zerolog.Logger
+	config      *config.AppConfig
+	version     string
+	shutdownCtx context.Context
 
 	authService                      *auth.Service
 	sessionManager                   *scs.SessionManager
@@ -88,6 +89,7 @@ type Server struct {
 type Dependencies struct {
 	Config                           *config.AppConfig
 	Version                          string
+	ShutdownCtx                      context.Context // Context cancelled on graceful shutdown
 	AuthService                      *auth.Service
 	SessionManager                   *scs.SessionManager
 	InstanceStore                    *models.InstanceStore
@@ -135,6 +137,7 @@ func NewServer(deps *Dependencies) *Server {
 		logger:                           log.Logger.With().Str("module", "api").Logger(),
 		config:                           deps.Config,
 		version:                          deps.Version,
+		shutdownCtx:                      deps.ShutdownCtx,
 		authService:                      deps.AuthService,
 		sessionManager:                   deps.SessionManager,
 		instanceStore:                    deps.InstanceStore,
@@ -319,7 +322,7 @@ func (s *Server) Handler() (*chi.Mux, error) {
 
 	// Create handlers
 	healthHandler := handlers.NewHealthHandler()
-	authHandler, err := handlers.NewAuthHandler(s.authService, s.sessionManager, s.config.Config, s.instanceStore, s.clientPool, s.syncManager)
+	authHandler, err := handlers.NewAuthHandler(s.authService, s.sessionManager, s.config.Config, s.instanceStore, s.clientPool, s.syncManager, s.shutdownCtx)
 	if err != nil {
 		return nil, err
 	}

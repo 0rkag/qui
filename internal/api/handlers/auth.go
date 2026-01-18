@@ -30,6 +30,7 @@ type AuthHandler struct {
 	instanceStore  *models.InstanceStore
 	clientPool     *qbittorrent.ClientPool
 	syncManager    *qbittorrent.SyncManager
+	shutdownCtx    context.Context // Context cancelled on graceful shutdown
 }
 
 func NewAuthHandler(
@@ -38,6 +39,7 @@ func NewAuthHandler(
 	instanceStore *models.InstanceStore,
 	clientPool *qbittorrent.ClientPool,
 	syncManager *qbittorrent.SyncManager,
+	shutdownCtx context.Context,
 ) (*AuthHandler, error) {
 	h := &AuthHandler{
 		authService:    authService,
@@ -46,6 +48,7 @@ func NewAuthHandler(
 		clientPool:     clientPool,
 		syncManager:    syncManager,
 		config:         config,
+		shutdownCtx:    shutdownCtx,
 	}
 
 	// Initialize OIDC handler if enabled
@@ -264,7 +267,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Warm the session by prefetching data in the background
 	// Use a detached context since this should continue even after the HTTP request completes
-	go h.warmSession(context.Background())
+	go h.warmSession(h.shutdownCtx)
 
 	RespondJSON(w, http.StatusOK, map[string]any{
 		"message": "Login successful",

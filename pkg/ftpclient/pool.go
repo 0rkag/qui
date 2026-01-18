@@ -43,8 +43,9 @@ func NewPool(idleTimeout time.Duration) *Pool {
 }
 
 // connectionKey generates a unique key for a connection config.
+// Includes TLS settings since they affect how the connection is established.
 func connectionKey(cfg *Config) string {
-	return fmt.Sprintf("%s:%d@%s", cfg.Username, cfg.Port, cfg.Host)
+	return fmt.Sprintf("%s:%d@%s|tls=%s|skipVerify=%t", cfg.Username, cfg.Port, cfg.Host, cfg.TLSMode, cfg.SkipTLSVerify)
 }
 
 // Get retrieves or creates an FTP client for the given config.

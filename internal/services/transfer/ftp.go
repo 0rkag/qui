@@ -159,11 +159,12 @@ func (e *FTPExecutor) getFTPClient(ctx context.Context, conn *models.InstanceCon
 	}
 
 	cfg := &ftpclient.Config{
-		Host:     conn.Host,
-		Port:     conn.Port,
-		Username: conn.Username,
-		Password: password,
-		TLSMode:  tlsMode,
+		Host:          conn.Host,
+		Port:          conn.Port,
+		Username:      conn.Username,
+		Password:      password,
+		TLSMode:       tlsMode,
+		SkipTLSVerify: conn.TLSSkipVerify,
 	}
 
 	return e.ftpPool.Get(cfg)

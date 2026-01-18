@@ -4,6 +4,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -62,7 +63,7 @@ func TestNewAuthHandlerFailsWhenOIDCInitFails(t *testing.T) {
 		// Missing mandatory OIDC settings so initialization fails before network calls.
 	}
 
-	_, err := NewAuthHandler(authService, sessionManager, config, nil, nil, nil)
+	_, err := NewAuthHandler(authService, sessionManager, config, nil, nil, nil, context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OIDC issuer is required")
 }

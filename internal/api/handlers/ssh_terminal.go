@@ -185,7 +185,8 @@ func (h *SSHTerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Reque
 		PrivateKeyPath: conn.PrivateKeyPath,
 	}
 
-	client, err := sshclient.New(cfg)
+	// Use insecure mode for terminal sessions (host key was verified when connection was saved)
+	client, err := sshclient.NewInsecure(cfg)
 	if err != nil {
 		h.sendError(ws, "SSH connection failed: "+err.Error())
 		return

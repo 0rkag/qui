@@ -4,6 +4,7 @@
 package sshclient
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -64,78 +65,91 @@ func TestPool_Close(t *testing.T) {
 	}
 }
 
+func newTestPool(maxIdleTime time.Duration) *Pool {
+	cfg := PoolConfig{
+		MaxIdleTime:         maxIdleTime,
+		CleanupInterval:     time.Hour, // Don't auto-cleanup during tests
+		MaxSize:             100,
+		HealthCheckInterval: time.Hour, // Don't auto-health-check during tests
+	}
+	return NewPoolWithConfig(context.Background(), cfg)
+}
+
 func TestPool_CleanupIdleConnections(t *testing.T) {
 	// Create pool with very short idle time
-	p := &Pool{
-		clients: make(map[string]*pooledClient),
-		maxIdle: 10 * time.Millisecond,
-		done:    make(chan struct{}),
-	}
-	p.cleanupT = time.NewTicker(time.Hour) // Don't auto-cleanup
+	p := newTestPool(10 * time.Millisecond)
 	defer p.Close()
 
 	// Add a mock entry directly (simulating a cached connection)
 	key := "test@host:22"
+	p.mu.Lock()
 	p.clients[key] = &pooledClient{
 		client:   nil, // Can't create real client without SSH server
 		lastUsed: time.Now().Add(-time.Hour), // Already expired
 	}
+	p.mu.Unlock()
 
-	if len(p.clients) != 1 {
+	p.mu.Lock()
+	count := len(p.clients)
+	p.mu.Unlock()
+	if count != 1 {
 		t.Fatalf("expected 1 client before cleanup")
 	}
 
 	// Run cleanup
 	p.cleanup()
 
-	if len(p.clients) != 0 {
-		t.Errorf("expected 0 clients after cleanup, got %d", len(p.clients))
+	p.mu.Lock()
+	count = len(p.clients)
+	p.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected 0 clients after cleanup, got %d", count)
 	}
 }
 
 func TestPool_CleanupKeepsActiveConnections(t *testing.T) {
-	p := &Pool{
-		clients: make(map[string]*pooledClient),
-		maxIdle: time.Hour, // Long idle time
-		done:    make(chan struct{}),
-	}
-	p.cleanupT = time.NewTicker(time.Hour)
+	p := newTestPool(time.Hour)
 	defer p.Close()
 
 	// Add a mock entry that was just used
 	key := "test@host:22"
+	p.mu.Lock()
 	p.clients[key] = &pooledClient{
 		client:   nil,
 		lastUsed: time.Now(), // Just used
 	}
+	p.mu.Unlock()
 
 	// Run cleanup
 	p.cleanup()
 
-	if len(p.clients) != 1 {
-		t.Errorf("expected 1 client after cleanup (still active), got %d", len(p.clients))
+	p.mu.Lock()
+	count := len(p.clients)
+	p.mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected 1 client after cleanup (still active), got %d", count)
 	}
 }
 
 func TestPool_Remove(t *testing.T) {
-	p := &Pool{
-		clients: make(map[string]*pooledClient),
-		maxIdle: time.Hour,
-		done:    make(chan struct{}),
-	}
-	p.cleanupT = time.NewTicker(time.Hour)
+	p := newTestPool(time.Hour)
 	defer p.Close()
 
 	cfg := &Config{Username: "test", Host: "host", Port: 22}
 	key := p.configKey(cfg)
 
 	// Add a mock entry
+	p.mu.Lock()
 	p.clients[key] = &pooledClient{
 		client:   &Client{}, // Empty client - Close() will be no-op
 		lastUsed: time.Now(),
 	}
+	p.mu.Unlock()
 
-	if len(p.clients) != 1 {
+	p.mu.Lock()
+	count := len(p.clients)
+	p.mu.Unlock()
+	if count != 1 {
 		t.Fatalf("expected 1 client before remove")
 	}
 
@@ -145,8 +159,11 @@ func TestPool_Remove(t *testing.T) {
 		t.Errorf("Remove() error = %v", err)
 	}
 
-	if len(p.clients) != 0 {
-		t.Errorf("expected 0 clients after remove, got %d", len(p.clients))
+	p.mu.Lock()
+	count = len(p.clients)
+	p.mu.Unlock()
+	if count != 0 {
+		t.Errorf("expected 0 clients after remove, got %d", count)
 	}
 }
 
@@ -164,12 +181,7 @@ func TestPool_RemoveNonExistent(t *testing.T) {
 }
 
 func TestPool_ConcurrentAccess(t *testing.T) {
-	p := &Pool{
-		clients: make(map[string]*pooledClient),
-		maxIdle: time.Hour,
-		done:    make(chan struct{}),
-	}
-	p.cleanupT = time.NewTicker(time.Hour)
+	p := newTestPool(time.Hour)
 	defer p.Close()
 
 	// Test concurrent stats calls don't race
@@ -199,8 +211,8 @@ func TestNewPool_DefaultIdleTime(t *testing.T) {
 	p := NewPool(0) // Should default to 5 minutes
 	defer p.Close()
 
-	if p.maxIdle != 5*time.Minute {
-		t.Errorf("expected default maxIdle of 5m, got %v", p.maxIdle)
+	if p.config.MaxIdleTime != 5*time.Minute {
+		t.Errorf("expected default MaxIdleTime of 5m, got %v", p.config.MaxIdleTime)
 	}
 }
 
@@ -208,7 +220,77 @@ func TestNewPool_CustomIdleTime(t *testing.T) {
 	p := NewPool(10 * time.Minute)
 	defer p.Close()
 
-	if p.maxIdle != 10*time.Minute {
-		t.Errorf("expected maxIdle of 10m, got %v", p.maxIdle)
+	if p.config.MaxIdleTime != 10*time.Minute {
+		t.Errorf("expected MaxIdleTime of 10m, got %v", p.config.MaxIdleTime)
+	}
+}
+
+func TestPool_InvalidateHost(t *testing.T) {
+	p := newTestPool(time.Hour)
+	defer p.Close()
+
+	// Add entries for multiple hosts
+	p.mu.Lock()
+	p.clients["user1@host1:22"] = &pooledClient{client: &Client{}, lastUsed: time.Now()}
+	p.clients["user2@host1:22"] = &pooledClient{client: &Client{}, lastUsed: time.Now()}
+	p.clients["user1@host2:22"] = &pooledClient{client: &Client{}, lastUsed: time.Now()}
+	p.mu.Unlock()
+
+	// Invalidate host1:22
+	p.InvalidateHost("host1", 22)
+
+	p.mu.Lock()
+	count := len(p.clients)
+	_, hasHost1User1 := p.clients["user1@host1:22"]
+	_, hasHost1User2 := p.clients["user2@host1:22"]
+	_, hasHost2 := p.clients["user1@host2:22"]
+	p.mu.Unlock()
+
+	if count != 1 {
+		t.Errorf("expected 1 client after invalidate, got %d", count)
+	}
+	if hasHost1User1 || hasHost1User2 {
+		t.Error("expected host1:22 connections to be removed")
+	}
+	if !hasHost2 {
+		t.Error("expected host2:22 connection to remain")
+	}
+}
+
+func TestPool_MaxSize(t *testing.T) {
+	cfg := PoolConfig{
+		MaxIdleTime:         time.Hour,
+		CleanupInterval:     time.Hour,
+		MaxSize:             3, // Small max size for testing
+		HealthCheckInterval: time.Hour,
+	}
+	p := NewPoolWithConfig(context.Background(), cfg)
+	defer p.Close()
+
+	// Add 4 entries - should evict the oldest
+	p.mu.Lock()
+	p.clients["user1@host1:22"] = &pooledClient{client: &Client{}, lastUsed: time.Now().Add(-3 * time.Hour)}
+	p.clients["user2@host2:22"] = &pooledClient{client: &Client{}, lastUsed: time.Now().Add(-2 * time.Hour)}
+	p.clients["user3@host3:22"] = &pooledClient{client: &Client{}, lastUsed: time.Now().Add(-1 * time.Hour)}
+	p.mu.Unlock()
+
+	// This should trigger eviction of the oldest (user1@host1:22)
+	newClient := &Client{}
+	p.storeIfAbsent("user4@host4:22", newClient)
+
+	p.mu.Lock()
+	count := len(p.clients)
+	_, hasOldest := p.clients["user1@host1:22"]
+	_, hasNewest := p.clients["user4@host4:22"]
+	p.mu.Unlock()
+
+	if count != 3 {
+		t.Errorf("expected 3 clients after max size enforcement, got %d", count)
+	}
+	if hasOldest {
+		t.Error("expected oldest client to be evicted")
+	}
+	if !hasNewest {
+		t.Error("expected newest client to be stored")
 	}
 }

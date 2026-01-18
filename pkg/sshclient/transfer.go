@@ -204,7 +204,7 @@ func RsyncRemoteToRemote(ctx context.Context, srcCfg, dstCfg *Config, srcPath, d
 	rsyncArgs = append(rsyncArgs, dstSpec)
 
 	// Connect to source and run rsync there
-	client, err := New(srcCfg)
+	client, err := NewInsecure(srcCfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect to source: %w", err)
 	}

@@ -1,6 +1,11 @@
 // Copyright (c) 2025, s0up and the autobrr contributors.
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+// SECURITY NOTE: All shell commands in this file are hard-coded and safe.
+// DO NOT add user-provided paths or values to these commands without
+// proper validation and shell escaping. Use ShellQuote() from client.go
+// for any dynamic values.
+
 package sshclient
 
 import (

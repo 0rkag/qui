@@ -693,10 +693,16 @@ func (app *Application) runServer() {
 	sessionManager.Cookie.Secure = false // Will be set to true when HTTPS is detected
 	sessionManager.Cookie.Persist = false
 
+	// Create shutdown context for graceful termination of background tasks
+	// This context is cancelled before HTTP server shutdown to allow
+	// background goroutines (like session warming) to finish cleanly
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	// Start server in goroutine
 	httpServer := api.NewServer(&api.Dependencies{
 		Config:                           cfg,
 		Version:                          buildinfo.Version,
+		ShutdownCtx:                      shutdownCtx,
 		AuthService:                      authService,
 		SessionManager:                   sessionManager,
 		InstanceStore:                    instanceStore,
@@ -790,6 +796,9 @@ func (app *Application) runServer() {
 	case err := <-errorChannel:
 		log.Error().Err(err).Msg("got unexpected error from server")
 	}
+
+	// Cancel shutdown context first to stop background tasks (e.g., session warming)
+	shutdownCancel()
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

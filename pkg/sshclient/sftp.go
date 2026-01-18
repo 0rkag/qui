@@ -35,8 +35,9 @@ func (c *Client) NewSFTPClient() (*SFTPClient, error) {
 
 // NewSFTPClientFromConfig creates a new SFTP client from SSH configuration.
 // The caller is responsible for closing the client when done.
+// Note: Uses insecure host key verification for backward compatibility.
 func NewSFTPClientFromConfig(cfg *Config) (*SFTPClient, error) {
-	sshClient, err := New(cfg)
+	sshClient, err := NewInsecure(cfg)
 	if err != nil {
 		return nil, err
 	}

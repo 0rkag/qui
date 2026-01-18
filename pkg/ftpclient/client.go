@@ -29,6 +29,9 @@ type Config struct {
 	// TLS mode: "none", "explicit", or "implicit"
 	TLSMode string // Default: "explicit"
 
+	// TLS certificate verification
+	SkipTLSVerify bool // If true, skip TLS certificate verification (insecure, use for self-signed certs)
+
 	// Connection settings
 	Timeout time.Duration // Connection timeout (default 30s)
 }
@@ -78,10 +81,10 @@ func New(cfg *Config) (*Client, error) {
 	var opts []ftp.DialOption
 	opts = append(opts, ftp.DialWithTimeout(cfg.Timeout))
 
-	// TLS configuration - always skip verify for simplicity
+	// TLS configuration - use SkipTLSVerify setting from config
 	tlsConfig := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true, // Always skip verify
+		InsecureSkipVerify: cfg.SkipTLSVerify,
 		ServerName:         cfg.Host,
 	}
 

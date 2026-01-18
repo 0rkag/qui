@@ -89,21 +89,31 @@ var (
 	ErrUnsupportedType         = errors.New("unsupported connection type")
 	ErrInvalidConnectionConfig = errors.New("invalid connection configuration")
 	ErrPathMappingRequired     = errors.New("at least one path mapping is required before creating a connection")
+	ErrHostKeyMismatch         = errors.New("host key does not match stored fingerprint")
+	ErrHostKeyNotTrusted       = errors.New("host key not yet trusted")
 )
 
 // InstanceConnection represents a connection configuration for remote access to an instance.
 type InstanceConnection struct {
-	ID         int64     `json:"id"`
-	InstanceID int       `json:"instanceId"`
-	Type       string    `json:"type"` // ssh_auto, ssh_rsync, ssh_sftp, ssh_scp, ftp_explicit, ftp_implicit, ftp_plain
-	Host       string    `json:"host"`
-	Port       int       `json:"port"`
-	Username   string    `json:"username"`
-	Password   string    `json:"password,omitempty"`       // Encrypted in DB, only for input (never returned)
-	PrivateKeyPath string `json:"privateKeyPath,omitempty"` // For SSH types: path to key on QUI server
-	Enabled    bool      `json:"enabled"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID             int64     `json:"id"`
+	InstanceID     int       `json:"instanceId"`
+	Type           string    `json:"type"` // ssh_auto, ssh_rsync, ssh_sftp, ssh_scp, ftp_explicit, ftp_implicit, ftp_plain
+	Host           string    `json:"host"`
+	Port           int       `json:"port"`
+	Username       string    `json:"username"`
+	Password       string    `json:"password,omitempty"`       // Encrypted in DB, only for input (never returned)
+	PrivateKeyPath string    `json:"privateKeyPath,omitempty"` // For SSH types: path to key on QUI server
+	Enabled        bool      `json:"enabled"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+
+	// SSH host key verification (TOFU - Trust On First Use)
+	HostKeyFingerprint *string    `json:"hostKeyFingerprint,omitempty"` // SHA256 fingerprint of the host key
+	HostKeyAlgorithm   *string    `json:"hostKeyAlgorithm,omitempty"`   // e.g., "ssh-ed25519", "ssh-rsa"
+	HostKeyVerifiedAt  *time.Time `json:"hostKeyVerifiedAt,omitempty"`  // When the host key was first trusted
+
+	// FTP TLS settings
+	TLSSkipVerify bool `json:"tlsSkipVerify"` // Skip TLS certificate verification for FTP connections
 
 	// Detected capabilities (cached from connection test)
 	RsyncAvailable      *bool      `json:"rsyncAvailable,omitempty"`
@@ -326,10 +336,10 @@ func (s *InstanceConnectionStore) Create(ctx context.Context, c *InstanceConnect
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO instance_connections (
 			instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			tls_skip_verify, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.InstanceID, c.Type, c.Host, c.Port, c.Username, encryptedPassword, c.PrivateKeyPath, c.Enabled,
-		now, now,
+		c.TLSSkipVerify, now, now,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
@@ -355,7 +365,8 @@ func (s *InstanceConnectionStore) Get(ctx context.Context, id int64) (*InstanceC
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at,
+			host_key_fingerprint, host_key_algorithm, host_key_verified_at, tls_skip_verify
 		FROM instance_connections
 		WHERE id = ?`, id)
 
@@ -367,7 +378,8 @@ func (s *InstanceConnectionStore) GetByInstanceAndType(ctx context.Context, inst
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at,
+			host_key_fingerprint, host_key_algorithm, host_key_verified_at, tls_skip_verify
 		FROM instance_connections
 		WHERE instance_id = ? AND type = ?`, instanceID, connType)
 
@@ -380,7 +392,8 @@ func (s *InstanceConnectionStore) GetSSHByInstance(ctx context.Context, instance
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at,
+			host_key_fingerprint, host_key_algorithm, host_key_verified_at, tls_skip_verify
 		FROM instance_connections
 		WHERE instance_id = ? AND type IN (?, ?, ?, ?)
 		LIMIT 1`,
@@ -394,7 +407,8 @@ func (s *InstanceConnectionStore) GetFTPByInstance(ctx context.Context, instance
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at,
+			host_key_fingerprint, host_key_algorithm, host_key_verified_at, tls_skip_verify
 		FROM instance_connections
 		WHERE instance_id = ? AND type IN (?, ?, ?)
 		LIMIT 1`,
@@ -413,7 +427,7 @@ func (s *InstanceConnectionStore) Update(ctx context.Context, c *InstanceConnect
 
 	// If password is provided, encrypt it; otherwise keep existing
 	var query string
-	var args []interface{}
+	var args []any
 
 	if c.Password != "" {
 		encryptedPassword, err := s.encrypt(c.Password)
@@ -422,15 +436,15 @@ func (s *InstanceConnectionStore) Update(ctx context.Context, c *InstanceConnect
 		}
 		query = `
 			UPDATE instance_connections
-			SET host = ?, port = ?, username = ?, password_encrypted = ?, private_key_path = ?, enabled = ?, updated_at = ?
+			SET host = ?, port = ?, username = ?, password_encrypted = ?, private_key_path = ?, enabled = ?, tls_skip_verify = ?, updated_at = ?
 			WHERE id = ?`
-		args = []interface{}{c.Host, c.Port, c.Username, encryptedPassword, c.PrivateKeyPath, c.Enabled, c.UpdatedAt, c.ID}
+		args = []any{c.Host, c.Port, c.Username, encryptedPassword, c.PrivateKeyPath, c.Enabled, c.TLSSkipVerify, c.UpdatedAt, c.ID}
 	} else {
 		query = `
 			UPDATE instance_connections
-			SET host = ?, port = ?, username = ?, private_key_path = ?, enabled = ?, updated_at = ?
+			SET host = ?, port = ?, username = ?, private_key_path = ?, enabled = ?, tls_skip_verify = ?, updated_at = ?
 			WHERE id = ?`
-		args = []interface{}{c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled, c.UpdatedAt, c.ID}
+		args = []any{c.Host, c.Port, c.Username, c.PrivateKeyPath, c.Enabled, c.TLSSkipVerify, c.UpdatedAt, c.ID}
 	}
 
 	res, err := s.db.ExecContext(ctx, query, args...)
@@ -475,7 +489,8 @@ func (s *InstanceConnectionStore) ListByInstance(ctx context.Context, instanceID
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at,
+			host_key_fingerprint, host_key_algorithm, host_key_verified_at, tls_skip_verify
 		FROM instance_connections
 		WHERE instance_id = ?
 		ORDER BY type
@@ -493,7 +508,8 @@ func (s *InstanceConnectionStore) ListEnabledByInstance(ctx context.Context, ins
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, instance_id, type, host, port, username, password_encrypted, private_key_path, enabled,
 			rsync_available, rsync_version, sftp_available, hardlinks_supported, reflinks_supported,
-			capabilities_checked_at, created_at, updated_at
+			capabilities_checked_at, created_at, updated_at,
+			host_key_fingerprint, host_key_algorithm, host_key_verified_at, tls_skip_verify
 		FROM instance_connections
 		WHERE instance_id = ? AND enabled = 1
 		ORDER BY type
@@ -528,6 +544,64 @@ func (s *InstanceConnectionStore) UpdateCapabilities(ctx context.Context, id int
 	return err
 }
 
+// HostKeyInfo holds SSH host key information.
+type HostKeyInfo struct {
+	Fingerprint string    `json:"fingerprint"` // SHA256 fingerprint
+	Algorithm   string    `json:"algorithm"`   // e.g., "ssh-ed25519", "ssh-rsa"
+	VerifiedAt  time.Time `json:"verifiedAt"`
+}
+
+// UpdateHostKey stores the SSH host key fingerprint for a connection (TOFU).
+func (s *InstanceConnectionStore) UpdateHostKey(ctx context.Context, id int64, fingerprint, algorithm string) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE instance_connections
+		SET host_key_fingerprint = ?, host_key_algorithm = ?, host_key_verified_at = ?, updated_at = ?
+		WHERE id = ?`,
+		fingerprint, algorithm, now, now, id,
+	)
+	return err
+}
+
+// ClearHostKey removes the stored host key for a connection (for re-verification).
+func (s *InstanceConnectionStore) ClearHostKey(ctx context.Context, id int64) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE instance_connections
+		SET host_key_fingerprint = NULL, host_key_algorithm = NULL, host_key_verified_at = NULL, updated_at = ?
+		WHERE id = ?`,
+		now, id,
+	)
+	return err
+}
+
+// GetHostKey retrieves the stored host key information for a connection.
+func (s *InstanceConnectionStore) GetHostKey(ctx context.Context, id int64) (*HostKeyInfo, error) {
+	var fingerprint, algorithm sql.NullString
+	var verifiedAt sql.NullTime
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT host_key_fingerprint, host_key_algorithm, host_key_verified_at
+		FROM instance_connections
+		WHERE id = ?`, id).Scan(&fingerprint, &algorithm, &verifiedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrConnectionNotFound
+		}
+		return nil, err
+	}
+
+	if !fingerprint.Valid || fingerprint.String == "" {
+		return nil, nil // No host key stored
+	}
+
+	return &HostKeyInfo{
+		Fingerprint: fingerprint.String,
+		Algorithm:   algorithm.String,
+		VerifiedAt:  verifiedAt.Time,
+	}, nil
+}
+
 // ConnectionCapabilities holds the detected capabilities for a connection.
 type ConnectionCapabilities struct {
 	RsyncAvailable     bool   `json:"rsyncAvailable"`
@@ -547,6 +621,10 @@ type connectionScanFields struct {
 	hardlinksSupported  sql.NullBool
 	reflinksSupported   sql.NullBool
 	capabilitiesChecked sql.NullTime
+	// SSH host key fields
+	hostKeyFingerprint sql.NullString
+	hostKeyAlgorithm   sql.NullString
+	hostKeyVerifiedAt  sql.NullTime
 }
 
 // applyToConnection applies the scanned nullable fields to a connection.
@@ -575,6 +653,16 @@ func (f *connectionScanFields) applyToConnection(c *InstanceConnection) {
 	if f.capabilitiesChecked.Valid {
 		c.CapabilitiesChecked = &f.capabilitiesChecked.Time
 	}
+	// SSH host key fields
+	if f.hostKeyFingerprint.Valid {
+		c.HostKeyFingerprint = &f.hostKeyFingerprint.String
+	}
+	if f.hostKeyAlgorithm.Valid {
+		c.HostKeyAlgorithm = &f.hostKeyAlgorithm.String
+	}
+	if f.hostKeyVerifiedAt.Valid {
+		c.HostKeyVerifiedAt = &f.hostKeyVerifiedAt.Time
+	}
 }
 
 // scanConnection scans a single row into an InstanceConnection.
@@ -587,6 +675,7 @@ func (s *InstanceConnectionStore) scanConnection(row *sql.Row) (*InstanceConnect
 		&c.Username, &f.passwordEncrypted, &f.privateKeyPath, &c.Enabled,
 		&f.rsyncAvailable, &f.rsyncVersion, &f.sftpAvailable, &f.hardlinksSupported, &f.reflinksSupported,
 		&f.capabilitiesChecked, &c.CreatedAt, &c.UpdatedAt,
+		&f.hostKeyFingerprint, &f.hostKeyAlgorithm, &f.hostKeyVerifiedAt, &c.TLSSkipVerify,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -611,6 +700,7 @@ func (s *InstanceConnectionStore) scanConnections(rows *sql.Rows) ([]*InstanceCo
 			&c.Username, &f.passwordEncrypted, &f.privateKeyPath, &c.Enabled,
 			&f.rsyncAvailable, &f.rsyncVersion, &f.sftpAvailable, &f.hardlinksSupported, &f.reflinksSupported,
 			&f.capabilitiesChecked, &c.CreatedAt, &c.UpdatedAt,
+			&f.hostKeyFingerprint, &f.hostKeyAlgorithm, &f.hostKeyVerifiedAt, &c.TLSSkipVerify,
 		)
 		if err != nil {
 			return nil, err

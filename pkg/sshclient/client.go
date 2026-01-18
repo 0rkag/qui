@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -25,6 +26,29 @@ type Config struct {
 	Password       string // Password authentication (used if PrivateKeyPath is empty)
 	PrivateKeyPath string // Private key authentication (takes precedence over password)
 	Timeout        time.Duration
+
+	// Host key verification (TOFU - Trust On First Use)
+	ExpectedHostKey         *HostKeyInfo                             // If set, verify the host key matches
+	OnNewHostKey            func(info *HostKeyInfo) error            // Callback when a new host key is encountered
+	SkipHostKeyVerification bool                                     // If true, skip all host key verification (insecure)
+}
+
+// HostKeyInfo contains information about an SSH host key.
+type HostKeyInfo struct {
+	Fingerprint string // SHA256 fingerprint (e.g., "SHA256:...")
+	Algorithm   string // Key algorithm (e.g., "ssh-ed25519", "ssh-rsa")
+}
+
+// HostKeyError is returned when the host key does not match the expected fingerprint.
+type HostKeyError struct {
+	Expected string // Expected fingerprint
+	Actual   string // Actual fingerprint
+	Hostname string // Hostname being connected to
+}
+
+// Error implements the error interface.
+func (e *HostKeyError) Error() string {
+	return fmt.Sprintf("host key mismatch for %s: expected %s, got %s", e.Hostname, e.Expected, e.Actual)
 }
 
 // Client wraps an SSH connection with command execution capabilities.
@@ -35,9 +59,10 @@ type Client struct {
 
 // New creates a new SSH client and establishes a connection.
 // Authentication priority: private key (if provided) > password.
-func New(cfg *Config) (*Client, error) {
+// Returns the client, host key info (for TOFU), and any error.
+func New(cfg *Config) (*Client, *HostKeyInfo, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config cannot be nil")
+		return nil, nil, fmt.Errorf("config cannot be nil")
 	}
 	if cfg.Port == 0 {
 		cfg.Port = 22
@@ -53,7 +78,7 @@ func New(cfg *Config) (*Client, error) {
 	if cfg.PrivateKeyPath != "" {
 		signer, err := loadPrivateKey(cfg.PrivateKeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("load private key: %w", err)
+			return nil, nil, fmt.Errorf("load private key: %w", err)
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
@@ -64,17 +89,17 @@ func New(cfg *Config) (*Client, error) {
 	}
 
 	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("no authentication method provided (need password or private key)")
+		return nil, nil, fmt.Errorf("no authentication method provided (need password or private key)")
 	}
 
+	// Build host key callback with TOFU support
+	var capturedHostKey *HostKeyInfo
+	hostKeyCallback := buildHostKeyCallback(cfg, &capturedHostKey)
+
 	sshConfig := &ssh.ClientConfig{
-		User: cfg.Username,
-		Auth: authMethods,
-		// Note: InsecureIgnoreHostKey is acceptable for this use case as connections
-		// are made to user-configured internal/trusted hosts. Proper host key
-		// verification would require a known_hosts management UI which adds complexity
-		// without significant security benefit for the intended deployment scenario.
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		User:            cfg.Username,
+		Auth:            authMethods,
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         cfg.Timeout,
 	}
 
@@ -83,7 +108,7 @@ func New(cfg *Config) (*Client, error) {
 	if err != nil {
 		// Don't include address in error to avoid leaking sensitive info to end users
 		// The underlying error may still contain connection details for logging
-		return nil, fmt.Errorf("ssh connection failed: %w", err)
+		return nil, capturedHostKey, fmt.Errorf("ssh connection failed: %w", err)
 	}
 
 	// Clear password from config after successful connection
@@ -92,7 +117,56 @@ func New(cfg *Config) (*Client, error) {
 	return &Client{
 		config: cfg,
 		client: client,
-	}, nil
+	}, capturedHostKey, nil
+}
+
+// NewInsecure creates a new SSH client without host key verification.
+// This is a convenience wrapper that sets SkipHostKeyVerification=true.
+// Use this only when backward compatibility is needed or for testing.
+func NewInsecure(cfg *Config) (*Client, error) {
+	cfg.SkipHostKeyVerification = true
+	client, _, err := New(cfg)
+	return client, err
+}
+
+// buildHostKeyCallback creates a host key callback based on the config.
+func buildHostKeyCallback(cfg *Config, capturedKey **HostKeyInfo) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		// Capture the host key info for TOFU
+		fingerprint := ssh.FingerprintSHA256(key)
+		algorithm := key.Type()
+		keyInfo := &HostKeyInfo{
+			Fingerprint: fingerprint,
+			Algorithm:   algorithm,
+		}
+		*capturedKey = keyInfo
+
+		// If skipping verification, accept any key
+		if cfg.SkipHostKeyVerification {
+			return nil
+		}
+
+		// If we have an expected key, verify it matches
+		if cfg.ExpectedHostKey != nil {
+			if cfg.ExpectedHostKey.Fingerprint != fingerprint {
+				return &HostKeyError{
+					Expected: cfg.ExpectedHostKey.Fingerprint,
+					Actual:   fingerprint,
+					Hostname: hostname,
+				}
+			}
+			return nil // Key matches
+		}
+
+		// No expected key - this is a new key (TOFU scenario)
+		// Call the callback if provided to let the caller decide
+		if cfg.OnNewHostKey != nil {
+			return cfg.OnNewHostKey(keyInfo)
+		}
+
+		// Default: accept new keys (backward compatible behavior)
+		return nil
+	}
 }
 
 // Close closes the SSH connection.
