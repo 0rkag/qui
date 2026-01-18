@@ -446,15 +446,29 @@ func TestLocalExecutor_DeleteSource(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name      string
-		transfer  *models.Transfer
-		deleteErr error
-		wantErr   bool
+		name            string
+		transfer        *models.Transfer
+		deleteErr       error
+		wantErr         bool
+		wantDeleteFiles bool
 	}{
 		{
-			name:     "success",
-			transfer: newTestTransfer(),
-			wantErr:  false,
+			name:            "hardlink mode - deletes files (safe via shared inodes)",
+			transfer:        newTestTransfer(withLinkMode("hardlink")),
+			wantErr:         false,
+			wantDeleteFiles: true,
+		},
+		{
+			name:            "reflink mode - deletes files (safe via CoW copies)",
+			transfer:        newTestTransfer(withLinkMode("reflink")),
+			wantErr:         false,
+			wantDeleteFiles: true,
+		},
+		{
+			name:            "direct mode - keeps files (shared storage)",
+			transfer:        newTestTransfer(withLinkMode("direct")),
+			wantErr:         false,
+			wantDeleteFiles: false,
 		},
 		{
 			name:      "error - delete fails",
@@ -481,8 +495,7 @@ func TestLocalExecutor_DeleteSource(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Len(t, sm.deleteTorrentCalls, 1)
-				// Verify deleteFiles is false (we keep files since they're hardlinked)
-				assert.False(t, sm.deleteTorrentCalls[0].DeleteFiles)
+				assert.Equal(t, tt.wantDeleteFiles, sm.deleteTorrentCalls[0].DeleteFiles)
 			}
 		})
 	}

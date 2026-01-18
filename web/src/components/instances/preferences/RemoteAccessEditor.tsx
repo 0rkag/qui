@@ -843,28 +843,21 @@ function TestResultDisplay({ result, isSSH }: { result: ConnectionTestResult; is
 
           {/* SSH Capabilities */}
           {result.success && isSSH && result.sshCapabilities && (
-            <div className="mt-2 pt-2 border-t border-green-500/20 text-xs space-y-1">
-              <p className="font-medium text-green-700 dark:text-green-300">Capabilities detected:</p>
-              <ul className="space-y-0.5 text-muted-foreground">
-                {result.sshCapabilities.hasRsync && <li>✓ rsync available</li>}
-                {result.sshCapabilities.hasSftp && <li>✓ SFTP available</li>}
-                {result.sshCapabilities.hasScp && <li>✓ SCP available</li>}
-                {result.sshCapabilities.canHardlink && <li>✓ Hardlinks supported</li>}
-                {result.sshCapabilities.canReflink && <li>✓ Reflinks supported</li>}
-              </ul>
-            </div>
+            <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              {result.sshCapabilities.rsyncAvailable && <li>✓ rsync available</li>}
+              {result.sshCapabilities.sftpAvailable && <li>✓ SFTP available</li>}
+              {result.sshCapabilities.hardlinksSupported && <li>✓ Hardlinks supported</li>}
+              {result.sshCapabilities.reflinksSupported && <li>✓ Reflinks supported</li>}
+            </ul>
           )}
 
           {/* FTP Capabilities */}
           {result.success && !isSSH && result.ftpCapabilities && (
-            <div className="mt-2 pt-2 border-t border-green-500/20 text-xs space-y-1">
-              <p className="font-medium text-green-700 dark:text-green-300">Capabilities detected:</p>
-              <ul className="space-y-0.5 text-muted-foreground">
-                {result.ftpCapabilities.tlsEnabled && <li>✓ TLS enabled</li>}
-                {result.ftpCapabilities.passiveModeWorks && <li>✓ Passive mode works</li>}
-                {result.ftpCapabilities.serverType && <li>Server: {result.ftpCapabilities.serverType}</li>}
-              </ul>
-            </div>
+            <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              {result.ftpCapabilities.tlsEnabled && <li>✓ TLS enabled</li>}
+              {result.ftpCapabilities.passiveModeWorks && <li>✓ Passive mode works</li>}
+              {result.ftpCapabilities.serverType && <li>Server: {result.ftpCapabilities.serverType}</li>}
+            </ul>
           )}
 
           {!result.success && result.message.includes("Permission denied") && (

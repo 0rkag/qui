@@ -4,6 +4,7 @@
  */
 
 import { QueryBuilder } from "@/components/query-builder"
+import { MoveInstanceOptions, type MoveInstanceValue } from "@/components/transfer"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -149,6 +150,8 @@ type FormState = {
   // Move instance action settings
   exprMoveTargetInstanceId: number | null
   exprMoveDeleteFromSource: boolean
+  exprMovePreserveCategory: boolean
+  exprMovePreserveTags: boolean
 }
 
 const emptyFormState: FormState = {
@@ -187,6 +190,8 @@ const emptyFormState: FormState = {
   exprBlockIfCrossSeedInCategories: [],
   exprMoveTargetInstanceId: null,
   exprMoveDeleteFromSource: true,
+  exprMovePreserveCategory: true,
+  exprMovePreserveTags: true,
 }
 
 // Helper to get enabled actions from form state
@@ -453,6 +458,8 @@ export function WorkflowDialog({ open, onOpenChange, instanceId, rule, onSuccess
         let exprBlockIfCrossSeedInCategories: string[] = []
         let exprMoveTargetInstanceId: number | null = null
         let exprMoveDeleteFromSource = true
+        let exprMovePreserveCategory = true
+        let exprMovePreserveTags = true
 
         // Hydrate freeSpaceSource from rule
         if (rule.freeSpaceSource) {
@@ -551,6 +558,8 @@ export function WorkflowDialog({ open, onOpenChange, instanceId, rule, onSuccess
             moveInstanceEnabled = true
             exprMoveTargetInstanceId = conditions.moveInstance.targetInstanceId ?? null
             exprMoveDeleteFromSource = conditions.moveInstance.deleteFromSource ?? true
+            exprMovePreserveCategory = conditions.moveInstance.preserveCategory ?? true
+            exprMovePreserveTags = conditions.moveInstance.preserveTags ?? true
           }
         }
 
@@ -591,6 +600,8 @@ export function WorkflowDialog({ open, onOpenChange, instanceId, rule, onSuccess
           exprBlockIfCrossSeedInCategories,
           exprMoveTargetInstanceId,
           exprMoveDeleteFromSource,
+          exprMovePreserveCategory,
+          exprMovePreserveTags,
         }
         setFormState(newState)
       } else {
@@ -783,6 +794,8 @@ export function WorkflowDialog({ open, onOpenChange, instanceId, rule, onSuccess
         enabled: true,
         targetInstanceId: input.exprMoveTargetInstanceId,
         deleteFromSource: input.exprMoveDeleteFromSource,
+        preserveCategory: input.exprMovePreserveCategory,
+        preserveTags: input.exprMovePreserveTags,
         condition: input.actionCondition ?? undefined,
       }
     }
@@ -1807,44 +1820,32 @@ export function WorkflowDialog({ open, onOpenChange, instanceId, rule, onSuccess
                             <X className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                        <div className="flex flex-col gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Target Instance</Label>
-                            <Select
-                              value={formState.exprMoveTargetInstanceId?.toString() ?? ""}
-                              onValueChange={(value) => setFormState(prev => ({
-                                ...prev,
-                                exprMoveTargetInstanceId: value ? Number(value) || null : null
-                              }))}
-                            >
-                              <SelectTrigger className="w-fit min-w-[160px]">
-                                <SelectValue placeholder="Select instance" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {eligibleTargetInstances.map((inst) => (
-                                  <SelectItem key={inst.id} value={inst.id.toString()}>
-                                    {inst.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {!canMoveToInstance && moveToInstanceDisabledReason && (
-                              <p className="text-xs text-muted-foreground">
-                                {moveToInstanceDisabledReason}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              id="move-delete-from-source"
-                              checked={formState.exprMoveDeleteFromSource}
-                              onCheckedChange={(checked) => setFormState(prev => ({ ...prev, exprMoveDeleteFromSource: checked }))}
-                            />
-                            <Label htmlFor="move-delete-from-source" className="text-sm cursor-pointer whitespace-nowrap">
-                              Delete from source after transfer
-                            </Label>
-                          </div>
-                        </div>
+                        <MoveInstanceOptions
+                          sourceInstanceId={instanceId}
+                          instances={instances?.map(inst => ({
+                            id: inst.id,
+                            name: inst.name,
+                            connected: inst.connected,
+                            hasLocalFilesystemAccess: inst.hasLocalFilesystemAccess,
+                            transferCapabilities: inst.transferCapabilities,
+                          })) ?? []}
+                          value={{
+                            targetInstanceId: formState.exprMoveTargetInstanceId,
+                            deleteFromSource: formState.exprMoveDeleteFromSource,
+                            preserveCategory: formState.exprMovePreserveCategory,
+                            preserveTags: formState.exprMovePreserveTags,
+                          }}
+                          onChange={(val: MoveInstanceValue) => setFormState(prev => ({
+                            ...prev,
+                            exprMoveTargetInstanceId: val.targetInstanceId,
+                            exprMoveDeleteFromSource: val.deleteFromSource,
+                            exprMovePreserveCategory: val.preserveCategory,
+                            exprMovePreserveTags: val.preserveTags,
+                          }))}
+                          variant="compact"
+                          showDescriptions={false}
+                          disabledReason={moveToInstanceDisabledReason}
+                        />
                       </div>
                     )}
 

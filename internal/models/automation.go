@@ -521,6 +521,8 @@ type MoveInstanceAction struct {
 	TargetInstanceID int               `json:"targetInstanceId"`
 	PathMappings     map[string]string `json:"pathMappings,omitempty"`
 	DeleteFromSource bool              `json:"deleteFromSource"`
+	PreserveCategory bool              `json:"preserveCategory"`
+	PreserveTags     bool              `json:"preserveTags"`
 	Condition        *RuleCondition    `json:"condition,omitempty"`
 }
 

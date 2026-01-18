@@ -227,9 +227,14 @@ func (e *LocalExecutor) AddTorrent(ctx context.Context, t *models.Transfer, prep
 }
 
 // DeleteSource removes the torrent from the source instance.
+// Files are deleted in all modes EXCEPT "direct" (shared storage).
+// - hardlink: safe to delete - target hardlinks preserve the data via shared inodes
+// - reflink: safe to delete - target has independent CoW copies
+// - direct: must NOT delete - source and target are the same files
 func (e *LocalExecutor) DeleteSource(ctx context.Context, t *models.Transfer) error {
-	// Delete torrent from source (keep files - they're hardlinked)
-	if err := e.syncManager.DeleteTorrents(ctx, t.SourceInstanceID, []string{t.TorrentHash}, false); err != nil {
+	// Delete source files unless using direct mode (shared storage)
+	deleteFiles := t.LinkMode != "direct"
+	if err := e.syncManager.DeleteTorrents(ctx, t.SourceInstanceID, []string{t.TorrentHash}, deleteFiles); err != nil {
 		return fmt.Errorf("failed to delete from source: %w", err)
 	}
 

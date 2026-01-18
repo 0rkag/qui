@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch"
 import type { Category, Torrent } from "@/types"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { AlertTriangle, Loader2, Plus, X } from "lucide-react"
+import { MoveInstanceOptions, type MoveInstanceValue, type InstanceOption } from "@/components/transfer"
 import type { ChangeEvent, KeyboardEvent } from "react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { buildCategoryTree, type CategoryNode } from "./CategoryTree"
@@ -2440,50 +2441,13 @@ interface MoveToInstanceDialogProps {
     local: boolean
     ssh: boolean
   }
-  instances: Array<{
-    id: number
-    name: string
-    connected: boolean
-    hasLocalFilesystemAccess: boolean
-    transferCapabilities?: {
-      local: boolean
-      ssh: boolean
-    }
-  }>
+  instances: InstanceOption[]
   onConfirm: (targetInstanceId: number, options: {
     deleteFromSource: boolean
     preserveCategory: boolean
     preserveTags: boolean
   }) => void
   isPending?: boolean
-}
-
-// Helper to determine if transfer is possible between two instances
-function canTransferBetween(
-  source: { local: boolean; ssh: boolean },
-  target: { local: boolean; ssh: boolean }
-): boolean {
-  // Direct local transfer (both have local access)
-  if (source.local && target.local) return true
-  // Push via SSH (source local, target has SSH)
-  if (source.local && target.ssh) return true
-  // Pull via SSH (source has SSH, target local)
-  if (source.ssh && target.local) return true
-  // Remote-to-remote via SSH
-  if (source.ssh && target.ssh) return true
-  return false
-}
-
-// Helper to determine the transfer method that will be used
-function getTransferMethod(
-  source: { local: boolean; ssh: boolean },
-  target: { local: boolean; ssh: boolean }
-): "local" | "ssh" | null {
-  if (source.local && target.local) return "local"
-  if (source.local && target.ssh) return "ssh"
-  if (source.ssh && target.local) return "ssh"
-  if (source.ssh && target.ssh) return "ssh"
-  return null
 }
 
 export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
@@ -2496,87 +2460,41 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
   onConfirm,
   isPending = false,
 }: MoveToInstanceDialogProps) {
-  const [targetInstanceId, setTargetInstanceId] = useState<number | null>(null)
-  const [deleteFromSource, setDeleteFromSource] = useState(true)
-  const [preserveCategory, setPreserveCategory] = useState(true)
-  const [preserveTags, setPreserveTags] = useState(true)
+  const [value, setValue] = useState<MoveInstanceValue>({
+    targetInstanceId: null,
+    deleteFromSource: true,
+    preserveCategory: true,
+    preserveTags: true,
+  })
   const wasOpen = useRef(false)
-
-  // Source capabilities (fallback to hasLocalFilesystemAccess for backwards compat)
-  const sourceCaps = useMemo(() => {
-    if (currentInstanceCapabilities) {
-      return currentInstanceCapabilities
-    }
-    // Fallback: find current instance in the list
-    const current = instances.find((i) => i.id === currentInstanceId)
-    return {
-      local: current?.hasLocalFilesystemAccess ?? false,
-      ssh: current?.transferCapabilities?.ssh ?? false,
-    }
-  }, [currentInstanceCapabilities, instances, currentInstanceId])
-
-  // Filter instances to show only those that:
-  // 1. Are not the current instance
-  // 2. Are connected
-  // 3. Can receive transfers from the source instance
-  const availableInstances = useMemo(() => {
-    return instances
-      .filter((instance) => {
-        if (instance.id === currentInstanceId) return false
-        if (!instance.connected) return false
-
-        // Get target capabilities (fallback for backwards compat)
-        const targetCaps = {
-          local: instance.transferCapabilities?.local ?? instance.hasLocalFilesystemAccess,
-          ssh: instance.transferCapabilities?.ssh ?? false,
-        }
-
-        return canTransferBetween(sourceCaps, targetCaps)
-      })
-      .map((instance) => ({
-        ...instance,
-        transferMethod: getTransferMethod(sourceCaps, {
-          local: instance.transferCapabilities?.local ?? instance.hasLocalFilesystemAccess,
-          ssh: instance.transferCapabilities?.ssh ?? false,
-        }),
-      }))
-  }, [instances, currentInstanceId, sourceCaps])
 
   // Reset state when dialog opens
   useEffect(() => {
     if (open && !wasOpen.current) {
-      setTargetInstanceId(null)
-      setDeleteFromSource(true)
-      setPreserveCategory(true)
-      setPreserveTags(true)
+      setValue({
+        targetInstanceId: null,
+        deleteFromSource: true,
+        preserveCategory: true,
+        preserveTags: true,
+      })
     }
     wasOpen.current = open
   }, [open])
 
   const handleConfirm = useCallback(() => {
-    if (targetInstanceId !== null) {
-      onConfirm(targetInstanceId, {
-        deleteFromSource,
-        preserveCategory,
-        preserveTags,
+    if (value.targetInstanceId !== null) {
+      onConfirm(value.targetInstanceId, {
+        deleteFromSource: value.deleteFromSource,
+        preserveCategory: value.preserveCategory,
+        preserveTags: value.preserveTags,
       })
     }
-  }, [targetInstanceId, deleteFromSource, preserveCategory, preserveTags, onConfirm])
+  }, [value, onConfirm])
 
   const handleCancel = useCallback(() => {
-    setTargetInstanceId(null)
+    setValue(prev => ({ ...prev, targetInstanceId: null }))
     onOpenChange(false)
   }, [onOpenChange])
-
-  const selectedInstance = useMemo(() => {
-    return availableInstances.find((i) => i.id === targetInstanceId)
-  }, [availableInstances, targetInstanceId])
-
-  useEffect(() => {
-    if (targetInstanceId !== null && !selectedInstance) {
-      setTargetInstanceId(null)
-    }
-  }, [targetInstanceId, selectedInstance])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2587,98 +2505,16 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
             Move the selected torrent(s) to another qBittorrent instance. Files will be transferred via hardlinks, reflinks, or SSH depending on configuration.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-4 space-y-4">
-          {availableInstances.length === 0 ? (
-            <div className="p-4 border rounded-md bg-muted/50">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium">No available instances</p>
-                  <p className="text-muted-foreground mt-1">
-                    Other instances must be connected and have either local filesystem access or SSH configured to receive transfers.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="target-instance">Target Instance</Label>
-                <Select
-                  value={targetInstanceId?.toString() ?? ""}
-                  onValueChange={(value) => setTargetInstanceId(parseInt(value, 10))}
-                >
-                  <SelectTrigger id="target-instance">
-                    <SelectValue placeholder="Select target instance" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableInstances.map((instance) => (
-                      <SelectItem key={instance.id} value={instance.id.toString()}>
-                        <div className="flex items-center gap-2">
-                          <span>{instance.name}</span>
-                          {instance.transferMethod === "ssh" && (
-                            <Badge variant="outline" className="text-xs px-1.5 py-0">
-                              SSH
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="delete-from-source">Delete from source</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Remove the torrent from the source instance after transfer
-                    </p>
-                  </div>
-                  <Switch
-                    id="delete-from-source"
-                    checked={deleteFromSource}
-                    onCheckedChange={setDeleteFromSource}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="preserve-category">Preserve category</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Keep the same category on the target instance
-                    </p>
-                  </div>
-                  <Switch
-                    id="preserve-category"
-                    checked={preserveCategory}
-                    onCheckedChange={setPreserveCategory}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="preserve-tags">Preserve tags</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Keep the same tags on the target instance
-                    </p>
-                  </div>
-                  <Switch
-                    id="preserve-tags"
-                    checked={preserveTags}
-                    onCheckedChange={setPreserveTags}
-                  />
-                </div>
-              </div>
-
-              {selectedInstance && (
-                <div className="text-sm text-muted-foreground">
-                  Moving to: <span className="font-medium">{selectedInstance.name}</span>
-                </div>
-              )}
-            </>
-          )}
+        <div className="py-4">
+          <MoveInstanceOptions
+            sourceInstanceId={currentInstanceId}
+            sourceCapabilities={currentInstanceCapabilities}
+            instances={instances}
+            value={value}
+            onChange={setValue}
+            variant="full"
+            showDescriptions={true}
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel} disabled={isPending}>
@@ -2686,7 +2522,7 @@ export const MoveToInstanceDialog = memo(function MoveToInstanceDialog({
           </Button>
           <Button
             onClick={handleConfirm}
-            disabled={isPending || !selectedInstance}
+            disabled={isPending || value.targetInstanceId === null}
           >
             {isPending ? (
               <>

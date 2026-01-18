@@ -178,8 +178,15 @@ func (e *SSHExecutor) AddTorrent(ctx context.Context, t *models.Transfer, prep *
 }
 
 // DeleteSource removes the torrent from the source instance.
+// Files are deleted in all modes EXCEPT "direct" (shared storage).
+// - hardlink: safe to delete - target hardlinks preserve the data via shared inodes
+// - reflink: safe to delete - target has independent CoW copies
+// - transfer/copy: safe to delete - files were copied
+// - direct: must NOT delete - source and target are the same files
 func (e *SSHExecutor) DeleteSource(ctx context.Context, t *models.Transfer) error {
-	if err := e.syncManager.DeleteTorrents(ctx, t.SourceInstanceID, []string{t.TorrentHash}, false); err != nil {
+	// Delete source files unless using direct mode (shared storage)
+	deleteFiles := t.LinkMode != "direct"
+	if err := e.syncManager.DeleteTorrents(ctx, t.SourceInstanceID, []string{t.TorrentHash}, deleteFiles); err != nil {
 		return fmt.Errorf("failed to delete from source: %w", err)
 	}
 
@@ -314,13 +321,12 @@ func (e *SSHExecutor) transferFilesRsync(ctx context.Context, t *models.Transfer
 	targetHasLocal := prep.TargetInstance.HasLocalFilesystemAccess
 
 	// Build source path (include torrent name for multi-file torrents)
+	// Note: Do NOT add trailing slash - we want rsync to copy the directory itself,
+	// not just its contents. This preserves the torrent folder structure.
 	sourcePath := filepath.Join(prep.SourceSavePath, prep.TorrentName)
 	if len(prep.Files) == 1 && prep.Files[0].RelPath == prep.TorrentName {
 		// Single file torrent - just use the file path
 		sourcePath = prep.Files[0].AbsPath
-	} else {
-		// Multi-file torrent - add trailing slash for rsync directory sync
-		sourcePath += "/"
 	}
 
 	// Ensure target directory exists

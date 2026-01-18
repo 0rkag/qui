@@ -403,6 +403,13 @@ func withDeleteFromSource(delete bool) func(*models.Transfer) {
 	}
 }
 
+// withLinkMode sets the link mode for the transfer
+func withLinkMode(mode string) func(*models.Transfer) {
+	return func(t *models.Transfer) {
+		t.LinkMode = mode
+	}
+}
+
 // withLocalAccess sets the local filesystem access flag
 func withLocalAccess(local bool) func(*models.Instance) {
 	return func(i *models.Instance) {

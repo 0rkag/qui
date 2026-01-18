@@ -10,7 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // Validation patterns for SSH configuration
@@ -21,6 +23,47 @@ var (
 	// Must start with alphanumeric or colon (for raw IPv6 like ::1)
 	validHostname = regexp.MustCompile(`^[a-zA-Z0-9:][a-zA-Z0-9.\-:]*$`)
 )
+
+// Local rsync version detection (cached)
+var (
+	localRsyncOnce            sync.Once
+	localRsyncSupportsInfo    bool // true if local rsync supports --info=progress2 (3.1.0+)
+	localRsyncVersionDetected bool
+)
+
+// detectLocalRsyncVersion checks if the local rsync supports --info=progress2 (requires 3.1.0+).
+// The result is cached for the lifetime of the process.
+func detectLocalRsyncVersion() {
+	localRsyncOnce.Do(func() {
+		cmd := exec.Command("rsync", "--version")
+		output, err := cmd.Output()
+		if err != nil {
+			return
+		}
+
+		// Parse version from output like "rsync  version 3.2.7  protocol version 31"
+		// or older format "rsync  version 2.6.9  protocol version 29"
+		versionStr := string(output)
+		if idx := strings.Index(versionStr, "version "); idx != -1 {
+			versionStr = versionStr[idx+8:]
+			if spaceIdx := strings.IndexAny(versionStr, " \t\n"); spaceIdx != -1 {
+				versionStr = versionStr[:spaceIdx]
+			}
+
+			// Parse major.minor version
+			parts := strings.Split(versionStr, ".")
+			if len(parts) >= 2 {
+				major, errMajor := strconv.Atoi(parts[0])
+				minor, errMinor := strconv.Atoi(parts[1])
+				if errMajor == nil && errMinor == nil {
+					// --info=progress2 was added in rsync 3.1.0
+					localRsyncSupportsInfo = major > 3 || (major == 3 && minor >= 1)
+					localRsyncVersionDetected = true
+				}
+			}
+		}
+	})
+}
 
 // ValidatePath checks if a path is safe for use in shell commands.
 // It ensures the path is absolute, contains no traversal attempts, and has reasonable length.
@@ -292,12 +335,25 @@ func ScpPull(ctx context.Context, cfg *Config, remotePath, localPath string) err
 }
 
 func buildRsyncArgs(opts *TransferOptions) []string {
-	// Use --info=progress2 for overall progress (easier to parse)
-	args := []string{"-a", "--info=progress2"}
+	// Detect local rsync version to determine progress flag support
+	detectLocalRsyncVersion()
 
-	if !opts.PreservePermissions {
-		args = []string{"-r", "--info=progress2"}
+	// Use --info=progress2 for rsync 3.1+ (easier to parse overall progress)
+	// Fall back to --progress for older versions (like macOS default rsync 2.6.9)
+	var progressFlag string
+	if localRsyncSupportsInfo {
+		progressFlag = "--info=progress2"
+	} else {
+		progressFlag = "--progress"
 	}
+
+	var args []string
+	if opts.PreservePermissions {
+		args = []string{"-a", progressFlag}
+	} else {
+		args = []string{"-r", progressFlag}
+	}
+
 	if opts.Delete {
 		args = append(args, "--delete")
 	}
@@ -352,20 +408,40 @@ func runRsyncWithProgress(ctx context.Context, args []string, onProgress Progres
 		return nil, fmt.Errorf("failed to start rsync: %w", err)
 	}
 
+	// Ensure version detection has run (called in buildRsyncArgs, but be safe)
+	detectLocalRsyncVersion()
+
+	// Create tracker for legacy mode (only used if rsync < 3.1)
+	var tracker *rsyncProgressTracker
+	if !localRsyncSupportsInfo {
+		tracker = &rsyncProgressTracker{}
+	}
+
 	// Parse progress in a separate goroutine
 	var outputBuf bytes.Buffer
 	go func() {
 		buf := make([]byte, 1024)
 		for {
-			n, err := stdout.Read(buf)
+			n, readErr := stdout.Read(buf)
 			if n > 0 {
 				outputBuf.Write(buf[:n])
-				// Try to parse progress from the output
-				if info := parseRsyncProgress(string(buf[:n])); info != nil {
+				chunk := string(buf[:n])
+
+				// Use appropriate parser based on rsync version
+				var info *ProgressInfo
+				if tracker != nil {
+					// Legacy mode: use cumulative tracker
+					info = tracker.parseProgressLegacy(chunk)
+				} else {
+					// Modern mode: parse --info=progress2 output
+					info = parseRsyncProgress(chunk)
+				}
+
+				if info != nil {
 					onProgress(*info)
 				}
 			}
-			if err != nil {
+			if readErr != nil {
 				break
 			}
 		}
@@ -457,6 +533,142 @@ func parseInt(s string) (int, error) {
 	var result int
 	_, err := fmt.Sscanf(s, "%d", &result)
 	return result, err
+}
+
+// rsyncProgressTracker tracks cumulative progress for legacy rsync (pre-3.1).
+// Since --progress shows per-file progress, we need to aggregate across files
+// to calculate overall transfer progress.
+type rsyncProgressTracker struct {
+	mu sync.Mutex
+
+	// totalFiles is the total number of files to transfer (from to-chk denominator)
+	totalFiles int
+	// completedFiles is the number of files fully transferred (from xfr#)
+	completedFiles int
+	// completedBytes is cumulative bytes from completed files
+	completedBytes int64
+	// currentFileBytes is bytes transferred for the current file
+	currentFileBytes int64
+	// currentFileTotal is the total size of the current file (if known)
+	currentFileTotal int64
+	// lastSpeed is the most recent speed reading
+	lastSpeed string
+	// lastSpeedBytes is the most recent speed in bytes/sec
+	lastSpeedBytes int64
+}
+
+// parseProgressLegacy parses rsync --progress output (legacy format, pre-3.1).
+// Format:
+//
+//	filename.txt
+//	      1234567 100%    1.23MB/s    0:00:01 (xfr#1, to-chk=5/10)
+//
+// Returns a ProgressInfo with cumulative progress across all files.
+func (t *rsyncProgressTracker) parseProgressLegacy(output string) *ProgressInfo {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Check for xfr# pattern which indicates a file transfer completion or progress
+		// Format: (xfr#N, to-chk=M/T) or (xfr#N, ir-chk=M/T)
+		if xfrIdx := strings.Index(line, "(xfr#"); xfrIdx != -1 {
+			// Parse the xfr and to-chk info
+			xfrPart := line[xfrIdx:]
+
+			// Extract xfr number: (xfr#N,
+			var xfrNum int
+			if _, err := fmt.Sscanf(xfrPart, "(xfr#%d,", &xfrNum); err == nil {
+				t.completedFiles = xfrNum
+			}
+
+			// Extract to-chk or ir-chk: to-chk=M/T) or ir-chk=M/T)
+			var remaining, total int
+			if strings.Contains(xfrPart, "to-chk=") {
+				idx := strings.Index(xfrPart, "to-chk=")
+				if _, err := fmt.Sscanf(xfrPart[idx:], "to-chk=%d/%d)", &remaining, &total); err == nil && total > 0 {
+					t.totalFiles = total
+				}
+			} else if strings.Contains(xfrPart, "ir-chk=") {
+				idx := strings.Index(xfrPart, "ir-chk=")
+				if _, err := fmt.Sscanf(xfrPart[idx:], "ir-chk=%d/%d)", &remaining, &total); err == nil && total > 0 {
+					t.totalFiles = total
+				}
+			}
+
+			// Parse the bytes/speed from the line before the (xfr#
+			progressPart := strings.TrimSpace(line[:xfrIdx])
+			fields := strings.Fields(progressPart)
+
+			if len(fields) >= 3 {
+				// First field is bytes (may have commas)
+				bytesStr := strings.ReplaceAll(fields[0], ",", "")
+				if bytes, err := parseInt64(bytesStr); err == nil {
+					// When we see 100%, add to completed bytes
+					if len(fields) >= 2 && fields[1] == "100%" {
+						t.completedBytes += bytes
+						t.currentFileBytes = 0
+						t.currentFileTotal = 0
+					} else {
+						t.currentFileBytes = bytes
+					}
+				}
+
+				// Speed is typically field 2
+				if len(fields) >= 3 {
+					t.lastSpeed = fields[2]
+					t.lastSpeedBytes = parseSpeed(fields[2])
+				}
+			}
+		} else if strings.Contains(line, "%") {
+			// Intermediate progress line (no xfr# yet) - just bytes and percentage
+			// Format:      1234567  50%    1.23MB/s    0:00:01
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				bytesStr := strings.ReplaceAll(fields[0], ",", "")
+				if bytes, err := parseInt64(bytesStr); err == nil {
+					t.currentFileBytes = bytes
+				}
+				t.lastSpeed = fields[2]
+				t.lastSpeedBytes = parseSpeed(fields[2])
+			}
+		}
+	}
+
+	// Calculate overall progress
+	// Use file count as the primary progress indicator since we don't know total bytes
+	var pct int
+	if t.totalFiles > 0 {
+		// Weight: completed files + partial progress on current file
+		completedPct := float64(t.completedFiles) / float64(t.totalFiles) * 100
+		// Add small amount for current file if in progress
+		if t.currentFileBytes > 0 && t.completedFiles < t.totalFiles {
+			// Estimate current file as 1/totalFiles contribution
+			filePct := 100.0 / float64(t.totalFiles)
+			// Assume current file is 50% done if we have any bytes
+			completedPct += filePct * 0.5
+		}
+		pct = int(completedPct)
+		if pct > 100 {
+			pct = 100
+		}
+	}
+
+	totalBytes := t.completedBytes + t.currentFileBytes
+
+	return &ProgressInfo{
+		BytesTransferred: totalBytes,
+		BytesTotal:       0, // Unknown in legacy mode
+		Percentage:       pct,
+		Speed:            t.lastSpeed,
+		SpeedBytesPerSec: t.lastSpeedBytes,
+		ETA:              "", // Not easily calculable in legacy mode
+	}
 }
 
 // parseSpeed converts speed string like "45.67MB/s" to bytes per second

@@ -264,11 +264,11 @@ export interface ConnectionTestResult {
   message: string
   details?: string
   sshCapabilities?: {
-    hasRsync: boolean
-    hasSftp: boolean
-    hasScp: boolean
-    canHardlink: boolean
-    canReflink: boolean
+    rsyncAvailable: boolean
+    rsyncVersion?: string
+    sftpAvailable: boolean
+    hardlinksSupported: boolean
+    reflinksSupported: boolean
   }
   ftpCapabilities?: {
     tlsEnabled: boolean
@@ -413,6 +413,8 @@ export interface MoveInstanceAction {
   targetInstanceId: number
   pathMappings?: Record<string, string>
   deleteFromSource: boolean
+  preserveCategory: boolean
+  preserveTags: boolean
   condition?: RuleCondition
 }
 

@@ -148,14 +148,7 @@ func doSSHConnectionTest(ctx context.Context, params sshTestParams) ConnectionTe
 		return result
 	}
 
-	message := "Connection successful"
-	if caps.RsyncAvailable {
-		message += " • rsync available"
-	} else {
-		message += " • rsync not found (will use SFTP)"
-	}
-
-	result.Message = message
+	result.Message = "Connection successful"
 	result.SSHCapabilities = caps
 	return result
 }
