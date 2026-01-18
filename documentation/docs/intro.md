@@ -19,6 +19,7 @@ A web interface for qBittorrent. Manage multiple qBittorrent instances from a si
 - **External Programs**: Launch custom scripts from the torrent context menu
 - **Tracker Reannounce**: Automatically fix stalled torrents when qBittorrent doesn't retry fast enough
 - **Automations**: Rule-based torrent management with conditions, actions (delete, pause, tag, limit speeds), and cross-seed awareness
+- **Torrent Transfers**: Move torrents between instances with hardlinks, reflinks, or rsync—no re-downloading needed
 - **Orphan Scan**: Find and remove files not associated with any torrent
 - **Backups & Restore**: Scheduled snapshots with incremental, overwrite, and complete restore modes
 - **Cross-Seed**: Automatically find and add matching torrents across trackers with autobrr webhook integration

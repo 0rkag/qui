@@ -1,0 +1,51 @@
+# E2E Test Environment
+# Managed by Go tests via docker compose commands
+#
+# Volume setup:
+# - qbit1 and qbit2 share /shared for hardlink testing
+# - qbit3 has isolated storage for rsync-only testing
+
+services:
+  qbit1:
+    image: linuxserver/qbittorrent:latest
+    container_name: qui-test-qbit1
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=UTC
+      - WEBUI_PORT=18081
+    volumes:
+      - ./.testdata/volumes/qbit1/downloads:/downloads
+      - ./.testdata/volumes/qbit1/config:/config
+      - ./.testdata/volumes/shared:/shared
+    restart: "no"
+
+  qbit2:
+    image: linuxserver/qbittorrent:latest
+    container_name: qui-test-qbit2
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=UTC
+      - WEBUI_PORT=18082
+    volumes:
+      - ./.testdata/volumes/qbit2/downloads:/downloads
+      - ./.testdata/volumes/qbit2/config:/config
+      - ./.testdata/volumes/shared:/shared
+    restart: "no"
+
+  qbit3:
+    image: linuxserver/qbittorrent:latest
+    container_name: qui-test-qbit3
+    network_mode: host
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=UTC
+      - WEBUI_PORT=18083
+    volumes:
+      - ./.testdata/volumes/qbit3/downloads:/downloads
+      - ./.testdata/volumes/qbit3/config:/config
+    restart: "no"

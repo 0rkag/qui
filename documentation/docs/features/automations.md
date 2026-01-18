@@ -234,6 +234,32 @@ Options:
 - **Include Cross-Seeds** - Also move cross-seeds (matching ContentPath AND SavePath)
 - **Block If Cross-Seed In Categories** - Prevent move if another cross-seed is in protected categories
 
+### Move to Instance
+
+:::warning[Work in Progress]
+This feature is under active development. The UI and behavior may change. Use with caution in production environments.
+:::
+
+Transfer torrents to another qBittorrent instance. Files are moved via hardlinks, reflinks, or rsync depending on your setup.
+
+| Setting | Description |
+|---------|-------------|
+| **Target Instance** | The destination qBittorrent instance |
+| **Delete from source** | Remove torrent from source after successful transfer |
+| **Preserve category** | Keep the same category on target instance |
+| **Preserve tags** | Keep the same tags on target instance |
+
+**Example use cases:**
+- Move completed torrents from a racing instance to a long-term seeding instance
+- Archive old torrents to a NAS-based instance after a retention period
+- Balance load across multiple instances based on tracker or category
+
+**Requirements:**
+- Instances must have [path mappings](/docs/features/path-mappings) configured if they see storage at different paths
+- For remote instances, configure [SSH connections](/docs/advanced/remote-instances)
+
+See [Torrent Transfers](/docs/features/transfers) for details on transfer modes and troubleshooting.
+
 ## Cross-Seed Awareness
 
 Automations detect cross-seeded torrents (same content/files) and can handle them specially:

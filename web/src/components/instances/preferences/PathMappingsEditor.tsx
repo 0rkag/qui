@@ -168,7 +168,7 @@ export function PathMappingsEditor({ instanceId, instanceName }: PathMappingsEdi
       return
     }
     if (canonicalError) {
-      toast.error(`QUI server path: ${canonicalError}`)
+      toast.error(`qui server path: ${canonicalError}`)
       return
     }
 
