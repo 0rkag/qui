@@ -258,7 +258,7 @@ Transfer torrents to another qBittorrent instance. Files are moved via hardlinks
 - Instances must have [path mappings](/docs/features/path-mappings) configured if they see storage at different paths
 - For remote instances, configure [SSH connections](/docs/advanced/remote-instances)
 
-See [Torrent Transfers](/docs/features/transfers) for details on transfer modes and troubleshooting.
+See **[Torrent Transfers](/docs/features/transfers)** for the complete setup checklist, transfer modes, and troubleshooting.
 
 ## Cross-Seed Awareness
 

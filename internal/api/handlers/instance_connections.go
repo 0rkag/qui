@@ -7,12 +7,39 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/autobrr/qui/internal/models"
 	"github.com/autobrr/qui/pkg/sshclient"
 )
+
+// sanitizeSSHError returns a user-friendly error message without exposing sensitive details.
+// The full error is logged server-side for debugging.
+func sanitizeSSHError(err error) string {
+	errStr := err.Error()
+
+	// Map common SSH errors to user-friendly messages
+	switch {
+	case strings.Contains(errStr, "no such file or directory"):
+		return "Private key file not found"
+	case strings.Contains(errStr, "permission denied"):
+		return "Authentication failed (check username and private key)"
+	case strings.Contains(errStr, "connection refused"):
+		return "Connection refused (check host and port)"
+	case strings.Contains(errStr, "no route to host"):
+		return "Host unreachable (check network connectivity)"
+	case strings.Contains(errStr, "i/o timeout"):
+		return "Connection timed out"
+	case strings.Contains(errStr, "host key"):
+		return "Host key verification issue"
+	case strings.Contains(errStr, "parse"):
+		return "Invalid private key format"
+	default:
+		return "Connection failed"
+	}
+}
 
 // maxRequestBodySize limits request body size to prevent memory exhaustion attacks.
 const maxRequestBodySize = 1 << 20 // 1 MB
@@ -352,10 +379,10 @@ func (h *InstanceConnectionsHandler) Test(w http.ResponseWriter, r *http.Request
 	// Try to connect
 	client, err := sshclient.New(cfg)
 	if err != nil {
+		log.Debug().Err(err).Str("host", payload.Host).Msg("connections: SSH test failed")
 		RespondJSON(w, http.StatusOK, SSHTestResult{
 			Success: false,
-			Message: "Connection failed",
-			Details: err.Error(),
+			Message: sanitizeSSHError(err),
 		})
 		return
 	}
@@ -363,12 +390,12 @@ func (h *InstanceConnectionsHandler) Test(w http.ResponseWriter, r *http.Request
 
 	// Test connection by running a simple command
 	ctx := r.Context()
-	output, err := client.Exec(ctx, "echo 'Connection successful'")
+	_, err = client.Exec(ctx, "echo 'Connection successful'")
 	if err != nil {
+		log.Debug().Err(err).Str("host", payload.Host).Msg("connections: SSH command execution failed")
 		RespondJSON(w, http.StatusOK, SSHTestResult{
 			Success: false,
 			Message: "Connection established but command execution failed",
-			Details: err.Error(),
 		})
 		return
 	}
@@ -376,7 +403,6 @@ func (h *InstanceConnectionsHandler) Test(w http.ResponseWriter, r *http.Request
 	RespondJSON(w, http.StatusOK, SSHTestResult{
 		Success: true,
 		Message: "Connection successful",
-		Details: output.Stdout,
 	})
 }
 
@@ -431,10 +457,10 @@ func (h *InstanceConnectionsHandler) TestExisting(w http.ResponseWriter, r *http
 	// Try to connect
 	client, err := sshclient.New(cfg)
 	if err != nil {
+		log.Debug().Err(err).Str("host", conn.Host).Int64("connID", id).Msg("connections: SSH test failed")
 		RespondJSON(w, http.StatusOK, SSHTestResult{
 			Success: false,
-			Message: "Connection failed",
-			Details: err.Error(),
+			Message: sanitizeSSHError(err),
 		})
 		return
 	}
@@ -442,12 +468,12 @@ func (h *InstanceConnectionsHandler) TestExisting(w http.ResponseWriter, r *http
 
 	// Test connection by running a simple command
 	ctx := r.Context()
-	output, err := client.Exec(ctx, "echo 'Connection successful'")
+	_, err = client.Exec(ctx, "echo 'Connection successful'")
 	if err != nil {
+		log.Debug().Err(err).Str("host", conn.Host).Int64("connID", id).Msg("connections: SSH command execution failed")
 		RespondJSON(w, http.StatusOK, SSHTestResult{
 			Success: false,
 			Message: "Connection established but command execution failed",
-			Details: err.Error(),
 		})
 		return
 	}
@@ -455,6 +481,5 @@ func (h *InstanceConnectionsHandler) TestExisting(w http.ResponseWriter, r *http
 	RespondJSON(w, http.StatusOK, SSHTestResult{
 		Success: true,
 		Message: "Connection successful",
-		Details: output.Stdout,
 	})
 }

@@ -35,19 +35,10 @@ func ValidatePath(path string) error {
 	if !strings.HasPrefix(path, "/") {
 		return fmt.Errorf("path must be absolute")
 	}
-	// Check for path traversal after cleaning
-	// Clean normalizes the path, removing . and .. elements
-	cleaned := filepath.Clean(path)
-	// After cleaning, if the path still contains .., it's suspicious
-	if strings.Contains(cleaned, "..") {
+	// Check for path traversal BEFORE cleaning to catch attempts like /foo/../bar
+	// which would be normalized to /bar by filepath.Clean
+	if strings.Contains(path, "..") {
 		return fmt.Errorf("path contains traversal elements")
-	}
-	// Ensure cleaning didn't escape the original directory intent
-	// e.g., /foo/../bar becomes /bar, which may not be intended
-	if cleaned != path && !strings.HasPrefix(cleaned, path) {
-		// Path was normalized - check it's still under root
-		// This is a safety check for paths like /foo/./bar -> /foo/bar (OK)
-		// vs /foo/../bar -> /bar (suspicious if /foo was the intended base)
 	}
 	return nil
 }
@@ -318,8 +309,10 @@ func buildRsyncArgs(opts *TransferOptions) []string {
 }
 
 func buildSSHCommand(cfg *Config) string {
+	// Note: StrictHostKeyChecking=no is acceptable here as connections are made
+	// to user-configured internal/trusted hosts. See comment in client.go.
 	return fmt.Sprintf("ssh -p %d -o StrictHostKeyChecking=no -i %s",
-		cfg.Port, cfg.PrivateKeyPath)
+		cfg.Port, ShellQuote(cfg.PrivateKeyPath))
 }
 
 func runRsync(ctx context.Context, args []string) (*TransferResult, error) {

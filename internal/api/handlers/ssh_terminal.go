@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
@@ -33,7 +34,12 @@ func NewSSHTerminalHandler(store *models.InstanceConnectionStore) *SSHTerminalHa
 func checkWebSocketOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		// No origin header means same-origin request (non-browser or same-origin)
+		// No origin header is sent by:
+		// 1. Same-origin requests in some browsers
+		// 2. Non-browser clients (CLI tools, native apps)
+		// 3. Requests from file:// URLs
+		// We allow these as they represent legitimate use cases for a self-hosted app.
+		// Browser-based CSWSH attacks will include an Origin header from the attacker's domain.
 		return true
 	}
 
@@ -286,8 +292,20 @@ func (h *SSHTerminalHandler) HandleTerminal(w http.ResponseWriter, r *http.Reque
 	// This closes the underlying pipes, causing Read() calls to return with an error
 	shell.Close()
 
-	// Now wait for goroutines to finish (they will exit due to Read errors)
-	wg.Wait()
+	// Wait for goroutines to finish with a timeout to prevent potential leaks
+	// if shell.Close() doesn't properly close underlying pipes
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Goroutines exited cleanly
+	case <-time.After(5 * time.Second):
+		log.Warn().Msg("terminal: goroutines did not exit within timeout")
+	}
 
 	log.Info().
 		Str("host", conn.Host).

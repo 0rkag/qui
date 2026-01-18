@@ -66,11 +66,6 @@ func (h *TransfersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if payload.PreserveTags != nil {
 		preserveTags = *payload.PreserveTags
 	}
-	if payload.SourceInstanceID <= 0 || payload.TargetInstanceID <= 0 || strings.TrimSpace(payload.TorrentHash) == "" {
-		RespondError(w, http.StatusBadRequest, "sourceInstanceId, targetInstanceId and torrentHash are required")
-		return
-	}
-
 	req := &transfer.TransferRequest{
 		SourceInstanceID: payload.SourceInstanceID,
 		TargetInstanceID: payload.TargetInstanceID,
@@ -85,6 +80,15 @@ func (h *TransfersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, transfer.ErrTransferAlreadyExists) {
 			RespondError(w, http.StatusConflict, "Transfer already exists for this torrent")
+			return
+		}
+		// Return validation errors as 400 Bad Request
+		if errors.Is(err, transfer.ErrMissingSourceID) ||
+			errors.Is(err, transfer.ErrMissingTargetID) ||
+			errors.Is(err, transfer.ErrSourceTargetSame) ||
+			errors.Is(err, transfer.ErrMissingTorrentHash) ||
+			errors.Is(err, transfer.ErrInvalidTorrentHash) {
+			RespondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		log.Error().Err(err).Msg("failed to create transfer")
@@ -200,18 +204,9 @@ func (h *TransfersHandler) MoveTorrent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hash := chi.URLParam(r, "hash")
-	if hash == "" {
-		RespondError(w, http.StatusBadRequest, "Torrent hash is required")
-		return
-	}
 
 	var payload MovePayload
 	if !DecodeJSONBody(w, r, &payload) {
-		return
-	}
-
-	if payload.TargetInstanceID <= 0 {
-		RespondError(w, http.StatusBadRequest, "Target instance ID is required")
 		return
 	}
 
@@ -243,6 +238,15 @@ func (h *TransfersHandler) MoveTorrent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, transfer.ErrTransferAlreadyExists) {
 			RespondError(w, http.StatusConflict, "Transfer already exists for this torrent")
+			return
+		}
+		// Return validation errors as 400 Bad Request
+		if errors.Is(err, transfer.ErrMissingSourceID) ||
+			errors.Is(err, transfer.ErrMissingTargetID) ||
+			errors.Is(err, transfer.ErrSourceTargetSame) ||
+			errors.Is(err, transfer.ErrMissingTorrentHash) ||
+			errors.Is(err, transfer.ErrInvalidTorrentHash) {
+			RespondError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		log.Error().Err(err).
