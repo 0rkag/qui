@@ -18,7 +18,7 @@ INTERNAL_WEB_DIR = internal/web
 # Go build flags with Polar credentials
 LDFLAGS = -ldflags "-X github.com/autobrr/qui/internal/buildinfo.Version=$(VERSION) -X main.PolarOrgID=$(POLAR_ORG_ID)"
 
-.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-integration test-e2e test-e2e-keep test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
+.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-coverage test-integration test-ssh-integration test-ftp-integration test-e2e test-e2e-keep test-e2e-clean test-e2e-coverage test-all test-coverage-report test-coverage-html help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
 
 # Default target
 all: build
@@ -95,22 +95,58 @@ dev-frontend-expose:
 # Clean build artifacts
 clean: themes-clean
 	@echo "Cleaning..."
-	rm -rf $(WEB_DIR)/dist $(INTERNAL_WEB_DIR)/dist $(BINARY_NAME) $(BUILD_DIR)
+	rm -rf $(WEB_DIR)/dist $(INTERNAL_WEB_DIR)/dist $(BINARY_NAME) $(BUILD_DIR) $(COVERAGE_DIR)
 
-# Run tests
+# Coverage output directory
+COVERAGE_DIR = .coverage
+
+# Run unit tests
 test:
-	@echo "Running tests..."
-	go test -race -count=3 -v ./...
+	@echo "Running unit tests..."
+	go test -race -count=1 -v ./...
+
+# Run unit tests with coverage
+test-coverage:
+	@echo "Running unit tests with coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -race -cover -coverprofile=$(COVERAGE_DIR)/unit.out ./...
+	@echo ""
+	@echo "Coverage summary:"
+	@go tool cover -func=$(COVERAGE_DIR)/unit.out | tail -1
 
 # Run integration tests (requires filesystem operations)
 test-integration:
 	@echo "Running integration tests..."
 	go test -tags=integration -v ./internal/services/transfer/...
 
+# Run SSH integration tests (requires SSH server)
+test-ssh-integration:
+	@echo "Running SSH integration tests..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -tags=ssh_integration -v -cover -coverprofile=$(COVERAGE_DIR)/ssh.out ./pkg/sshclient/...
+	@echo ""
+	@go tool cover -func=$(COVERAGE_DIR)/ssh.out | tail -1
+
+# Run FTP integration tests (requires FTP server)
+test-ftp-integration:
+	@echo "Running FTP integration tests..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -tags=ftp_integration -v -cover -coverprofile=$(COVERAGE_DIR)/ftp.out ./pkg/ftpclient/...
+	@echo ""
+	@go tool cover -func=$(COVERAGE_DIR)/ftp.out | tail -1
+
 # Run E2E tests (requires Docker)
 test-e2e:
 	@echo "Running E2E transfer tests..."
 	go test -tags=e2e -v -timeout=15m ./tests/e2e/...
+
+# Run E2E tests with coverage
+test-e2e-coverage:
+	@echo "Running E2E tests with coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -tags=e2e -v -timeout=15m -cover -coverprofile=$(COVERAGE_DIR)/e2e.out ./tests/e2e/...
+	@echo ""
+	@go tool cover -func=$(COVERAGE_DIR)/e2e.out | tail -1
 
 # Run E2E tests and keep containers running for debugging
 test-e2e-keep:
@@ -123,8 +159,44 @@ test-e2e-clean:
 	docker compose -f tests/e2e/docker-compose.yml down -v
 	rm -rf tests/e2e/.testdata
 
-# Run all tests
-test-all: test test-integration test-e2e
+# Run all tests with combined coverage
+test-all:
+	@echo "Running all tests with coverage..."
+	@mkdir -p $(COVERAGE_DIR)
+	@echo "Step 1/3: Unit tests..."
+	go test -cover -coverprofile=$(COVERAGE_DIR)/unit.out ./... || true
+	@echo ""
+	@echo "Step 2/3: Integration tests..."
+	go test -tags=integration -cover -coverprofile=$(COVERAGE_DIR)/integration.out ./internal/services/transfer/... || true
+	@echo ""
+	@echo "Step 3/3: E2E tests (requires Docker)..."
+	go test -tags=e2e -timeout=15m -cover -coverprofile=$(COVERAGE_DIR)/e2e.out ./tests/e2e/... || true
+	@echo ""
+	@echo "=== Coverage Summary ==="
+	@if [ -f $(COVERAGE_DIR)/unit.out ]; then echo "Unit:        $$(go tool cover -func=$(COVERAGE_DIR)/unit.out | tail -1 | awk '{print $$3}')"; fi
+	@if [ -f $(COVERAGE_DIR)/integration.out ]; then echo "Integration: $$(go tool cover -func=$(COVERAGE_DIR)/integration.out | tail -1 | awk '{print $$3}')"; fi
+	@if [ -f $(COVERAGE_DIR)/e2e.out ]; then echo "E2E:         $$(go tool cover -func=$(COVERAGE_DIR)/e2e.out | tail -1 | awk '{print $$3}')"; fi
+
+# Generate detailed coverage report
+test-coverage-report:
+	@echo "Generating detailed coverage report..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -cover -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	@echo ""
+	@echo "=== Package Coverage ==="
+	@go tool cover -func=$(COVERAGE_DIR)/coverage.out | grep -E "^github.com.*total:" | sort -t'	' -k3 -rn | head -20
+	@echo ""
+	@echo "=== Total Coverage ==="
+	@go tool cover -func=$(COVERAGE_DIR)/coverage.out | tail -1
+
+# Generate HTML coverage report
+test-coverage-html:
+	@echo "Generating HTML coverage report..."
+	@mkdir -p $(COVERAGE_DIR)
+	go test -cover -coverprofile=$(COVERAGE_DIR)/coverage.out ./...
+	go tool cover -html=$(COVERAGE_DIR)/coverage.out -o $(COVERAGE_DIR)/coverage.html
+	@echo "Coverage report generated: $(COVERAGE_DIR)/coverage.html"
+	@open $(COVERAGE_DIR)/coverage.html 2>/dev/null || xdg-open $(COVERAGE_DIR)/coverage.html 2>/dev/null || echo "Open $(COVERAGE_DIR)/coverage.html in your browser"
 
 # Validate OpenAPI specification
 test-openapi:
@@ -204,13 +276,19 @@ help:
 	@echo "  make dev-expose     - Run frontend dev server exposed on 0.0.0.0"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test           - Run unit tests with race detection"
-	@echo "  make test-integration - Run integration tests (filesystem operations)"
-	@echo "  make test-e2e       - Run E2E tests (requires Docker)"
-	@echo "  make test-e2e-keep  - Run E2E tests, keep containers running for debugging"
-	@echo "  make test-e2e-clean - Clean up E2E test containers"
-	@echo "  make test-all       - Run all tests (unit + integration + E2E)"
-	@echo "  make test-openapi   - Validate OpenAPI specification"
+	@echo "  make test                  - Run unit tests with race detection"
+	@echo "  make test-coverage         - Run unit tests with coverage summary"
+	@echo "  make test-coverage-report  - Generate detailed per-package coverage report"
+	@echo "  make test-coverage-html    - Generate HTML coverage report (opens browser)"
+	@echo "  make test-integration      - Run integration tests (filesystem operations)"
+	@echo "  make test-ssh-integration  - Run SSH client integration tests"
+	@echo "  make test-ftp-integration  - Run FTP client integration tests"
+	@echo "  make test-e2e              - Run E2E tests (requires Docker)"
+	@echo "  make test-e2e-coverage     - Run E2E tests with coverage"
+	@echo "  make test-e2e-keep         - Run E2E tests, keep containers running"
+	@echo "  make test-e2e-clean        - Clean up E2E test containers"
+	@echo "  make test-all              - Run all tests with combined coverage summary"
+	@echo "  make test-openapi          - Validate OpenAPI specification"
 	@echo ""
 	@echo "Linting:"
 	@echo "  make lint           - Lint changed files only (fast, for iteration)"

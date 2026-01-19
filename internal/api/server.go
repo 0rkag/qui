@@ -577,6 +577,9 @@ func (s *Server) Handler() (*chi.Mux, error) {
 									r.Post("/test", instanceConnectionsHandler.TestExisting)
 								})
 
+								// Accept SSH host key (TOFU)
+								r.Post("/accept-host-key", instanceConnectionsHandler.AcceptHostKey)
+
 								// WebSocket SSH terminal (easter egg)
 								if sshTerminalHandler != nil {
 									r.Get("/terminal", sshTerminalHandler.HandleTerminal)

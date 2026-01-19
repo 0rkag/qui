@@ -152,6 +152,7 @@ func newTestDependencies(t *testing.T) *Dependencies {
 		DashboardSettingsStore:    models.NewDashboardSettingsStore(db),
 		DirScanService:            dirScanService,
 		InstancePathMappingStore:  instancePathMappingStore,
+		InstanceConnectionStore:   instanceConnectionStore,
 		TransferService:           transferService,
 	}
 }

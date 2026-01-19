@@ -4561,35 +4561,6 @@ paths:
         '404':
           description: Connection not found
 
-  /api/instances/{instanceID}/torrents/{hash}/move:
-    post:
-      tags:
-        - Transfers
-      summary: Move torrent to another instance
-      description: Convenience endpoint to move a torrent from one instance to another. Creates a transfer with the source instance derived from the URL.
-      parameters:
-        - $ref: '#/components/parameters/instanceID'
-        - $ref: '#/components/parameters/hash'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MoveRequest'
-      responses:
-        '201':
-          description: Transfer created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transfer'
-        '400':
-          description: Invalid request
-        '404':
-          description: Torrent not found
-        '409':
-          description: Transfer already exists for this torrent
-
   /health:
     get:
       tags:

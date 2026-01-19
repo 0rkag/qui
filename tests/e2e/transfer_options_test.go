@@ -42,7 +42,7 @@ func TestTransfer_PreserveCategory(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: true,
 		PreserveTags:     false,
 	})
@@ -85,7 +85,7 @@ func TestTransfer_PreserveTags(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     true,
 	})
@@ -130,7 +130,7 @@ func TestTransfer_PreserveCategoryAndTags(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: true,
 		PreserveTags:     true,
 	})
@@ -171,7 +171,7 @@ func TestTransfer_NoPreserveCategory(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})
@@ -212,7 +212,7 @@ func TestTransfer_CreateMissingCategory(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit3.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: true,
 		PreserveTags:     false,
 	})
@@ -259,7 +259,7 @@ func TestTransfer_PathMapping_RequestOverride(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit3.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 		PathMappings: map[string]string{
@@ -301,7 +301,7 @@ func TestTransfer_DuplicateTransfer(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})
@@ -312,7 +312,7 @@ func TestTransfer_DuplicateTransfer(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	}
@@ -354,7 +354,7 @@ func TestTransfer_TorrentNotFound(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      fakeHash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})

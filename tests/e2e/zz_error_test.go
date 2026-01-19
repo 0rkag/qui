@@ -33,7 +33,7 @@ func TestTransfer_ZZ_Cancellation(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})
@@ -83,7 +83,7 @@ func TestTransfer_ZZ_TargetUnavailable(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit3.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})
@@ -126,7 +126,7 @@ func TestTransfer_ZZ_SourceUnavailable(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit2.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})
@@ -176,7 +176,7 @@ func TestTransfer_ZZ_RollbackOnFailure(t *testing.T) {
 		SourceInstanceID: qbit1.ID,
 		TargetInstanceID: qbit3.ID,
 		TorrentHash:      hash,
-		DeleteFromSource: false,
+		SourceAction: "keep",
 		PreserveCategory: false,
 		PreserveTags:     false,
 	})

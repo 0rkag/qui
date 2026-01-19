@@ -39,8 +39,8 @@ func setupTestDir(t *testing.T, files map[string]string) string {
 	return dir
 }
 
-// verifyHardlink checks that two files are hardlinked (same inode).
-func verifyHardlink(t *testing.T, path1, path2 string) {
+// testVrifyHardlink checks that two files are hardlinked (same inode).
+func testVerifyHardlink(t *testing.T, path1, path2 string) {
 	t.Helper()
 
 	info1, err := os.Stat(path1)
@@ -90,8 +90,8 @@ func TestIntegration_CreateLinks_Hardlinks(t *testing.T) {
 
 	// Create source files
 	sourceDir := setupTestDir(t, map[string]string{
-		"Test Torrent/file1.txt": "content of file 1",
-		"Test Torrent/file2.txt": "content of file 2",
+		"Test Torrent/file1.txt":        "content of file 1",
+		"Test Torrent/file2.txt":        "content of file 2",
 		"Test Torrent/subdir/file3.txt": "content of file 3",
 	})
 	targetDir := t.TempDir()
@@ -123,13 +123,13 @@ func TestIntegration_CreateLinks_Hardlinks(t *testing.T) {
 	assert.Equal(t, 3, count)
 
 	// Verify hardlinks were created
-	verifyHardlink(t,
+	testVerifyHardlink(t,
 		filepath.Join(sourceDir, "Test Torrent/file1.txt"),
 		filepath.Join(prep.TargetSavePath, "Test Torrent/file1.txt"))
-	verifyHardlink(t,
+	testVerifyHardlink(t,
 		filepath.Join(sourceDir, "Test Torrent/file2.txt"),
 		filepath.Join(prep.TargetSavePath, "Test Torrent/file2.txt"))
-	verifyHardlink(t,
+	testVerifyHardlink(t,
 		filepath.Join(sourceDir, "Test Torrent/subdir/file3.txt"),
 		filepath.Join(prep.TargetSavePath, "Test Torrent/subdir/file3.txt"))
 }
@@ -379,8 +379,8 @@ func TestIntegration_FullTransferFlow(t *testing.T) {
 	require.FileExists(t, targetFile1)
 	require.FileExists(t, targetFile2)
 
-	verifyHardlink(t, filepath.Join(sourceDir, "Test Torrent/file1.mkv"), targetFile1)
-	verifyHardlink(t, filepath.Join(sourceDir, "Test Torrent/file2.mkv"), targetFile2)
+	testVerifyHardlink(t, filepath.Join(sourceDir, "Test Torrent/file1.mkv"), targetFile1)
+	testVerifyHardlink(t, filepath.Join(sourceDir, "Test Torrent/file2.mkv"), targetFile2)
 
 	// Step 3: Add torrent would be mocked (qBit API)
 	err = executor.AddTorrent(ctx, transfer, prep)
