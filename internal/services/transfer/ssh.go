@@ -444,8 +444,7 @@ func (e *SSHExecutor) transferFiles(ctx context.Context, t *models.Transfer, pre
 		return e.transferFilesSFTP(ctx, t, prep, sourceSSH, targetSSH)
 
 	case transferMethodSCP:
-		// SCP is not yet implemented - return error so users know to use a different method
-		return 0, fmt.Errorf("SCP transfer method is not yet implemented; please use ssh_auto, ssh_rsync, or ssh_sftp instead")
+		return e.transferFilesSCP(ctx, t, prep, sourceSSH, targetSSH)
 
 	default:
 		return 0, fmt.Errorf("unsupported transfer method: %s", method)
@@ -626,6 +625,100 @@ func (e *SSHExecutor) getSFTPClient(conn *models.InstanceConnection) (*sshclient
 
 	cfg := e.sshConfigFromConnection(conn)
 	return sshclient.NewSFTPClientFromConfig(cfg)
+}
+
+// transferFilesSCP transfers files via SCP.
+func (e *SSHExecutor) transferFilesSCP(ctx context.Context, t *models.Transfer, prep *PrepareResult, sourceSSH, targetSSH *models.InstanceConnection) (int, error) {
+	sourceHasLocal := prep.SourceInstance.HasLocalFilesystemAccess
+	targetHasLocal := prep.TargetInstance.HasLocalFilesystemAccess
+
+	// Build source path
+	sourcePath := filepath.Join(prep.SourceSavePath, prep.TorrentName)
+	if len(prep.Files) == 1 && prep.Files[0].RelPath == prep.TorrentName {
+		sourcePath = prep.Files[0].AbsPath
+	}
+
+	targetDir := prep.TargetSavePath
+	targetPath := filepath.Join(targetDir, prep.TorrentName)
+
+	// Determine if source is a directory
+	isDir := len(prep.Files) > 1 || (len(prep.Files) == 1 && prep.Files[0].RelPath != prep.TorrentName)
+
+	opts := sshclient.SCPTransferOptions{
+		PreservePermissions: true,
+		FileExistsMode:      fileExistsActionToSCPMode(t.FileExistsAction),
+		Recursive:           isDir,
+	}
+
+	switch {
+	case sourceHasLocal && targetSSH != nil:
+		// Upload from local to remote
+		cfg := e.sshConfigFromConnection(targetSSH)
+		scpClient, err := sshclient.NewSCPClient(cfg)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create SCP client: %w", err)
+		}
+		defer scpClient.Close()
+
+		if err := scpClient.Upload(ctx, sourcePath, targetPath, opts); err != nil {
+			return 0, fmt.Errorf("SCP upload failed: %w", err)
+		}
+
+	case targetHasLocal && sourceSSH != nil:
+		// Download from remote to local
+		cfg := e.sshConfigFromConnection(sourceSSH)
+		scpClient, err := sshclient.NewSCPClient(cfg)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create SCP client: %w", err)
+		}
+		defer scpClient.Close()
+
+		// Ensure local target directory exists
+		if err := os.MkdirAll(targetDir, 0o755); err != nil {
+			return 0, fmt.Errorf("failed to create target directory: %w", err)
+		}
+
+		if err := scpClient.Download(ctx, sourcePath, targetPath, opts); err != nil {
+			return 0, fmt.Errorf("SCP download failed: %w", err)
+		}
+
+	case sourceSSH != nil && targetSSH != nil:
+		// Remote to remote - relay through QUI
+		srcCfg := e.sshConfigFromConnection(sourceSSH)
+		dstCfg := e.sshConfigFromConnection(targetSSH)
+
+		relayOpts := sshclient.SCPRemoteToRemoteOptions{
+			SCPTransferOptions: opts,
+			UseRelay:           true,
+		}
+
+		if err := sshclient.SCPRelayTransfer(ctx, srcCfg, dstCfg, sourcePath, targetPath, relayOpts); err != nil {
+			return 0, fmt.Errorf("SCP relay transfer failed: %w", err)
+		}
+
+	default:
+		return 0, fmt.Errorf("cannot determine SCP direction")
+	}
+
+	log.Info().
+		Int64("id", t.ID).
+		Int("files", len(prep.Files)).
+		Str("targetDir", targetDir).
+		Msg("[TRANSFER-SSH] Files transferred via SCP")
+
+	return len(prep.Files), nil
+}
+
+// fileExistsActionToSCPMode converts FileExistsAction to sshclient.FileExistsMode for SCP.
+func fileExistsActionToSCPMode(action models.FileExistsAction) sshclient.FileExistsMode {
+	switch action {
+	case models.FileExistsSkip:
+		return sshclient.FileExistsModeSkip
+	case models.FileExistsOverwrite:
+		return sshclient.FileExistsModeOverwrite
+	default:
+		return sshclient.FileExistsModeAbort
+	}
 }
 
 // createRemoteLinks creates hardlinks or reflinks on a remote machine via SSH.

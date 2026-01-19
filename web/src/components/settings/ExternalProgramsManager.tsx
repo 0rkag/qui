@@ -32,7 +32,14 @@ import { useDateTimeFormatters } from "@/hooks/useDateTimeFormatters"
 import { api } from "@/lib/api"
 import type { ExternalProgram, ExternalProgramCreate, ExternalProgramUpdate, PathMapping } from "@/types"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Edit, Plus, Trash2, X } from "lucide-react"
+import { AlertTriangle, Edit, HelpCircle, Plus, Trash2, X } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -256,6 +263,7 @@ function ProgramForm({ program, onSubmit, onCancel, isPending }: ProgramFormProp
   const [enabled, setEnabled] = useState(program?.enabled !== false)
   const [useTerminal, setUseTerminal] = useState(program?.use_terminal !== false)
   const [pathMappings, setPathMappings] = useState<PathMapping[]>(program?.path_mappings || [])
+  const isNew = !program
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -286,7 +294,18 @@ function ProgramForm({ program, onSubmit, onCancel, isPending }: ProgramFormProp
   }
 
   return (
+    <TooltipProvider>
     <form onSubmit={handleSubmit} className="space-y-4">
+      {isNew && (
+        <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/50">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-xs text-amber-800 dark:text-amber-200">
+            <strong>Security note:</strong> External programs run with QUI server permissions.
+            Only configure programs you trust. Malicious scripts could access or modify files on the server.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="name">Name *</Label>
         <Input
@@ -299,7 +318,18 @@ function ProgramForm({ program, onSubmit, onCancel, isPending }: ProgramFormProp
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="path">Program Path *</Label>
+        <div className="flex items-center gap-1">
+          <Label htmlFor="path">Program Path *</Label>
+          <Tooltip>
+            <TooltipTrigger>
+              <HelpCircle className="h-3 w-3 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p>The program runs on the QUI server, not in your browser.
+                 Ensure the path is valid on the server and the program is executable.</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
         <Input
           id="path"
           value={path}
@@ -308,12 +338,23 @@ function ProgramForm({ program, onSubmit, onCancel, isPending }: ProgramFormProp
           required
         />
         <p className="text-xs text-muted-foreground">
-          Full path to the executable
+          Full path to the executable on the QUI server
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="args">Arguments Template</Label>
+        <div className="flex items-center gap-1">
+          <Label htmlFor="args">Arguments Template</Label>
+          <Tooltip>
+            <TooltipTrigger>
+              <HelpCircle className="h-3 w-3 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p>Arguments passed to the program. Use placeholders to include torrent info.
+                 Always quote placeholders to handle special characters safely.</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
         <Textarea
           id="args"
           value={argsTemplate}
@@ -322,7 +363,7 @@ function ProgramForm({ program, onSubmit, onCancel, isPending }: ProgramFormProp
           rows={3}
         />
         <div className="text-xs text-muted-foreground space-y-1">
-          <div>Full path to script with arguments</div>
+          <div>Arguments passed to the program. Quote placeholders to avoid issues with special characters.</div>
           <div>Available placeholders:</div>
           <ul className="list-disc list-inside pl-2 space-y-0.5">
             <li><code className="bg-muted px-1 rounded">{"{hash}"}</code> - Torrent hash</li>
@@ -434,5 +475,6 @@ function ProgramForm({ program, onSubmit, onCancel, isPending }: ProgramFormProp
         </Button>
       </div>
     </form>
+    </TooltipProvider>
   )
 }

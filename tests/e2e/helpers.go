@@ -731,3 +731,64 @@ func (e *TestEnv) GetTransferError(t *testing.T, transferID int64) string {
 	}
 	return transfer.Error
 }
+
+// UpdateSSHConnectionType updates the SSH connection type for an instance.
+// Valid types: ssh_auto, ssh_rsync, ssh_sftp, ssh_scp
+func (e *TestEnv) UpdateSSHConnectionType(t *testing.T, inst *QBitInstance, connType string) {
+	t.Helper()
+
+	// First, get the existing connection ID
+	url := fmt.Sprintf("%s/api/instances/%d/connections", e.QUIURL, inst.ID)
+	req, err := http.NewRequest("GET", url, nil)
+	require.NoError(t, err)
+
+	resp, err := e.HTTPClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	var connections []struct {
+		ID   int    `json:"id"`
+		Type string `json:"type"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&connections)
+	require.NoError(t, err)
+
+	if len(connections) == 0 {
+		t.Fatalf("No connections found for instance %s", inst.Name)
+	}
+
+	// Update the connection type
+	connID := connections[0].ID
+	updateURL := fmt.Sprintf("%s/api/instances/%d/connections/%d", e.QUIURL, inst.ID, connID)
+	body := fmt.Sprintf(`{"type": "%s"}`, connType)
+
+	patchReq, err := http.NewRequest("PATCH", updateURL, strings.NewReader(body))
+	require.NoError(t, err)
+	patchReq.Header.Set("Content-Type", "application/json")
+
+	patchResp, err := e.HTTPClient.Do(patchReq)
+	require.NoError(t, err)
+	defer patchResp.Body.Close()
+
+	require.Equal(t, http.StatusOK, patchResp.StatusCode, "update connection type failed")
+	t.Logf("Updated SSH connection type for %s to %s", inst.Name, connType)
+}
+
+// GetInstanceConnections returns the connections for an instance
+func (e *TestEnv) GetInstanceConnections(t *testing.T, inst *QBitInstance) []map[string]interface{} {
+	t.Helper()
+
+	url := fmt.Sprintf("%s/api/instances/%d/connections", e.QUIURL, inst.ID)
+	req, err := http.NewRequest("GET", url, nil)
+	require.NoError(t, err)
+
+	resp, err := e.HTTPClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	var connections []map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&connections)
+	require.NoError(t, err)
+
+	return connections
+}

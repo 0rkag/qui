@@ -17,6 +17,7 @@ import {
   Pencil,
   Plus,
   Server,
+  ShieldAlert,
   Terminal,
   Trash2,
   Wifi,
@@ -55,6 +56,7 @@ import {
   Collapsible,
   CollapsibleContent,
 } from "@/components/ui/collapsible"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useInstanceConnections } from "@/hooks/useInstanceConnections"
 import { SSHTerminalButton } from "./SSHTerminal"
 import type {
@@ -663,11 +665,31 @@ function ConnectionForm({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">{typeInfo.description}</p>
+          {formData.type === "ftp_plain" && (
+            <Alert className="mt-2 border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/50">
+              <ShieldAlert className="h-4 w-4 text-red-600" />
+              <AlertDescription className="text-xs text-red-800 dark:text-red-200">
+                <strong>Security risk:</strong> Plain FTP transmits credentials and data without encryption.
+                Anyone on the network can intercept your username and password. Only use on trusted local networks.
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
 
         {/* Host */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Host</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-xs">Host</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircle className="h-3 w-3 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p>IP address or hostname of the remote server where qBittorrent is running.
+                   Use an IP for faster connections or a hostname for flexibility.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             value={formData.host}
             onChange={(e) => setFormData({ ...formData, host: e.target.value })}
@@ -677,7 +699,18 @@ function ConnectionForm({
 
         {/* Port */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Port</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-xs">Port</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircle className="h-3 w-3 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p>Standard ports: SSH uses 22, FTP uses 21 (explicit TLS) or 990 (implicit TLS).
+                   Only change if your server uses a non-standard port.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             type="number"
             value={formData.port ?? typeInfo.defaultPort}
@@ -688,11 +721,22 @@ function ConnectionForm({
 
         {/* Username */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Username</Label>
+          <div className="flex items-center gap-1">
+            <Label className="text-xs">Username</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircle className="h-3 w-3 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p>The user account on the remote server. For security, avoid using &quot;root&quot; unless necessary.
+                   Create a dedicated user with only the permissions needed for file access.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             value={formData.username}
             onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-            placeholder="root"
+            placeholder="user"
           />
         </div>
 
@@ -703,6 +747,15 @@ function ConnectionForm({
             {isSSH && (
               <span className="text-xs text-muted-foreground">(or use key below)</span>
             )}
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircle className="h-3 w-3 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                <p>Password is stored encrypted in the database. For SSH, using a private key is more secure
+                   than password authentication.</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="relative">
             <Input
