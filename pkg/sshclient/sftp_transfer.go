@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 // ErrFileExists is returned when a file already exists and Force is not set.
@@ -193,10 +195,10 @@ func (s *SFTPClient) Upload(ctx context.Context, localPath, remotePath string, o
 		}
 	}
 
-	// Preserve permissions
+	// Preserve permissions (non-fatal if it fails, but log the error)
 	if opts.PreservePermissions {
 		if err := s.client.Chmod(remotePath, localInfo.Mode()); err != nil {
-			// Non-fatal, log and continue
+			log.Warn().Err(err).Str("path", remotePath).Msg("failed to preserve permissions on remote file")
 		}
 	}
 
@@ -295,10 +297,10 @@ func (s *SFTPClient) Download(ctx context.Context, remotePath, localPath string,
 		}
 	}
 
-	// Preserve permissions
+	// Preserve permissions (non-fatal if it fails, but log the error)
 	if opts.PreservePermissions {
 		if err := os.Chmod(localPath, remoteInfo.Mode()); err != nil {
-			// Non-fatal
+			log.Warn().Err(err).Str("path", localPath).Msg("failed to preserve permissions on local file")
 		}
 	}
 
@@ -561,11 +563,15 @@ func sftpRelayFile(ctx context.Context, src, dst *SFTPClient, srcPath, dstPath s
 		}
 	}
 
-	// Preserve permissions
+	// Preserve permissions (non-fatal if it fails, but log the error)
 	if opts.PreservePermissions {
-		srcInfo, _ := srcFile.Stat()
-		if srcInfo != nil {
-			_ = dst.client.Chmod(dstPath, srcInfo.Mode())
+		srcInfo, statErr := srcFile.Stat()
+		if statErr != nil {
+			log.Warn().Err(statErr).Str("path", srcPath).Msg("failed to stat source file for permission preservation")
+		} else if srcInfo != nil {
+			if err := dst.client.Chmod(dstPath, srcInfo.Mode()); err != nil {
+				log.Warn().Err(err).Str("path", dstPath).Msg("failed to preserve permissions on destination file")
+			}
 		}
 	}
 

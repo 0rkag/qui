@@ -1,16 +1,23 @@
 ---
 sidebar_position: 3
 title: Remote Instances
-description: Connect to qBittorrent instances on remote machines via SSH.
+description: Connect to qBittorrent instances on remote machines via SSH or FTP.
 ---
 
-# Remote Instances (SSH)
+# Remote Instances
 
 :::warning[Work in Progress]
 This feature is under active development. The UI and behavior may change.
 :::
 
-When qBittorrent runs on a different machine than qui, you can configure SSH connections to enable file operations like [transfers](/docs/features/transfers). qui connects via SSH to create hardlinks, reflinks, or transfer files using rsync.
+When qBittorrent runs on a different machine than qui, you can configure SSH or FTP connections to enable file operations like [transfers](/docs/features/transfers). qui connects via SSH to create hardlinks, reflinks, or transfer files using rsync. Alternatively, FTP can be used for simpler file transfer scenarios.
+
+## Connection Types
+
+| Type | Best For | Features |
+|------|----------|----------|
+| **SSH** | Full functionality | Hardlinks, reflinks, rsync, terminal access |
+| **FTP/FTPS** | Simple file transfers | Basic upload/download, TLS encryption |
 
 :::tip[Related Documentation]
 - **[Torrent Transfers](/docs/features/transfers)** — Move torrents between instances (includes setup checklist)
@@ -115,6 +122,25 @@ qui maintains a pool of SSH connections to avoid reconnecting for every operatio
 
 ## Security Considerations
 
+### Host Key Verification (TOFU)
+
+qui implements Trust-On-First-Use (TOFU) host key verification to protect against man-in-the-middle attacks:
+
+1. **First connection**: When you test an SSH connection for the first time, qui captures the server's host key fingerprint
+2. **Storage**: The fingerprint is stored in the database along with the connection settings
+3. **Subsequent connections**: Every connection verifies the server's key matches the stored fingerprint
+4. **Key changes**: If the server's key changes (e.g., after reinstallation), qui will reject the connection and alert you
+
+This applies to all SSH operations including:
+- Direct SSH connections
+- rsync file transfers
+- SCP file copies
+- SFTP operations
+
+:::tip
+If a server's host key legitimately changes, you can accept the new key through the connection settings UI.
+:::
+
 ### Key-Based Authentication Only
 
 qui uses SSH keys exclusively. Password authentication is not supported. This is more secure and enables unattended operation.
@@ -168,9 +194,21 @@ If you mount the remote filesystem locally (SSHFS, NFS, SMB), the canonical path
 
 ### Host key verification failed
 
-First connection to a host requires accepting its key. Either:
-- SSH to the host manually first to accept the key
-- Add the host key to `~/.ssh/known_hosts`
+This can occur in two scenarios:
+
+**First connection:**
+- Use the **Test Connection** button in the UI to capture and store the host key
+- The fingerprint will be displayed for verification before accepting
+
+**Host key mismatch (key changed):**
+- The server's key has changed from what qui has stored
+- This could indicate a legitimate server change (reinstall, new hardware) or a security issue
+- Verify the change is expected before accepting the new key
+- Use the **Accept New Key** option in the connection settings if the change is legitimate
+
+:::warning
+Never accept a new host key without verification. An unexpected key change could indicate a man-in-the-middle attack.
+:::
 
 ### rsync: command not found
 
@@ -211,3 +249,73 @@ This means neither local nor SSH executor can handle the transfer. Check:
 - At least one instance has SSH configured, OR
 - Both instances have local filesystem access enabled
 - SSH connection settings are valid
+
+---
+
+## FTP Connections
+
+For scenarios where SSH is not available, qui supports FTP and FTPS connections for file transfers.
+
+### FTP Connection Types
+
+| Type | Description | Default Port |
+|------|-------------|--------------|
+| `ftp_explicit` | FTP with explicit TLS (STARTTLS) | 21 |
+| `ftp_implicit` | FTP with implicit TLS | 990 |
+| `ftp_plain` | Plain FTP (not recommended) | 21 |
+
+:::warning
+Plain FTP transmits credentials and data unencrypted. Only use for trusted local networks.
+:::
+
+### FTP Configuration
+
+| Setting | Description | Example |
+|---------|-------------|---------|
+| **Host** | FTP server hostname or IP | `ftp.example.com` |
+| **Port** | FTP port | `21` or `990` |
+| **Username** | FTP login user | `media` |
+| **Password** | FTP password | Stored securely |
+| **TLS Skip Verify** | Skip TLS certificate verification | For self-signed certs |
+
+### FTP Quick Start
+
+1. Go to **Instances** and click the gear icon on an instance
+2. Open the **Connection** tab
+3. Select connection type: `FTP (Explicit TLS)`, `FTP (Implicit TLS)`, or `FTP (Plain)`
+4. Fill in host, port, username, and password
+5. Click **Test Connection** to verify
+6. Click **Save**
+
+### FTP Limitations
+
+Compared to SSH, FTP connections have limitations:
+
+| Feature | SSH | FTP |
+|---------|-----|-----|
+| Hardlinks | Yes | No |
+| Reflinks | Yes | No |
+| rsync delta transfers | Yes | No |
+| Terminal access | Yes | No |
+| Relay transfers (remote-to-remote) | Yes | Yes |
+
+FTP connections are best for simple scenarios where you only need to upload/download files and don't require advanced linking capabilities.
+
+### FTP Troubleshooting
+
+#### Connection refused
+
+- Verify FTP server is running
+- Check firewall allows the FTP port
+- For explicit TLS, ensure STARTTLS is supported
+
+#### TLS handshake failed
+
+- Enable **TLS Skip Verify** for self-signed certificates
+- Verify the FTP server's TLS configuration
+- Try explicit vs implicit TLS mode
+
+#### Passive mode issues
+
+- Ensure passive port range is open on firewall
+- Some NAT configurations may require passive mode adjustments on the server

@@ -751,6 +751,20 @@ func (e *SSHExecutor) sshConfigFromConnection(conn *models.InstanceConnection) *
 	return cfg
 }
 
+// linkModeFromTargetSettings determines link mode based on target instance settings.
+func linkModeFromTargetSettings(target *models.Instance) string {
+	if target.UseHardlinks {
+		return "hardlink"
+	}
+	if target.UseReflinks {
+		return "reflink"
+	}
+	if target.FallbackToRegularMode {
+		return "copy"
+	}
+	return "direct"
+}
+
 // determineLinkMode decides how files should be handled for SSH transfers.
 // Returns: "transfer" if files need to be moved between machines,
 // "hardlink"/"reflink"/"copy"/"direct" for same-machine operations.
@@ -760,16 +774,7 @@ func (e *SSHExecutor) determineLinkMode(ctx context.Context, source, target *mod
 
 	// If both have local access, use link mode based on target settings
 	if sourceLocal && targetLocal {
-		if target.UseHardlinks {
-			return "hardlink"
-		}
-		if target.UseReflinks {
-			return "reflink"
-		}
-		if target.FallbackToRegularMode {
-			return "copy"
-		}
-		return "direct"
+		return linkModeFromTargetSettings(target)
 	}
 
 	// Check if both instances have SSH to the same host (same machine scenario)
@@ -785,15 +790,12 @@ func (e *SSHExecutor) determineLinkMode(ctx context.Context, source, target *mod
 
 		if sourceSSH != nil && targetSSH != nil && sourceSSH.Host == targetSSH.Host {
 			// Same host via SSH - can use linking based on target settings
-			if target.UseHardlinks {
-				return "hardlink"
-			}
-			if target.UseReflinks {
-				return "reflink"
-			}
-			if target.FallbackToRegularMode {
+			mode := linkModeFromTargetSettings(target)
+			// For same host via SSH, "direct" doesn't apply - default to copy
+			if mode == "direct" {
 				return "copy"
 			}
+			return mode
 		}
 	}
 

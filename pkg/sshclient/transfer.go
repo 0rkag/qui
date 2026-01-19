@@ -149,7 +149,8 @@ func validateConfig(cfg *Config) error {
 // verifyHostKey performs a quick connection to verify the host key matches the expected fingerprint.
 // This should be called before running rsync/scp commands to ensure we're connecting to the right host.
 // If no expected key is set in config, this function returns nil (TOFU behavior).
-func verifyHostKey(ctx context.Context, cfg *Config) error {
+// Note: ctx parameter is reserved for future context-aware dialing implementation.
+func verifyHostKey(_ context.Context, cfg *Config) error {
 	if cfg.ExpectedHostKey == nil || cfg.ExpectedHostKey.Fingerprint == "" {
 		// No expected key - TOFU behavior, accept any key
 		return nil
@@ -181,7 +182,8 @@ func verifyHostKey(ctx context.Context, cfg *Config) error {
 
 // captureHostKey connects to a host and captures its public key for known_hosts generation.
 // Returns the host key in OpenSSH known_hosts format.
-func captureHostKey(ctx context.Context, cfg *Config) (string, error) {
+// Note: ctx parameter is reserved for future context-aware dialing implementation.
+func captureHostKey(_ context.Context, cfg *Config) (string, error) {
 	var capturedKey ssh.PublicKey
 
 	// Build auth methods
@@ -263,6 +265,13 @@ func createTempKnownHosts(entries ...string) (string, error) {
 	tmpFile, err := os.CreateTemp("", "qui-known-hosts-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
+	}
+
+	// Set restrictive permissions (0600) for security
+	if err := os.Chmod(tmpFile.Name(), 0600); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("set known_hosts permissions: %w", err)
 	}
 
 	content := strings.Join(entries, "\n") + "\n"

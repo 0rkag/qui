@@ -32,11 +32,19 @@ The SSH client package (`pkg/sshclient/`) provides SSH connectivity with connect
 
 ```go
 type Config struct {
-    Host           string        // SSH server hostname
-    Port           int           // SSH port (default: 22)
-    Username       string        // SSH username
-    PrivateKeyPath string        // Path to private key file
-    Timeout        time.Duration // Connection timeout
+    Host                    string        // SSH server hostname
+    Port                    int           // SSH port (default: 22)
+    Username                string        // SSH username
+    PrivateKeyPath          string        // Path to private key file
+    Password                string        // Password (alternative to key)
+    Timeout                 time.Duration // Connection timeout
+    ExpectedHostKey         *HostKeyInfo  // Expected host key for verification
+    SkipHostKeyVerification bool          // Skip verification (insecure)
+}
+
+type HostKeyInfo struct {
+    Fingerprint string // SHA256 fingerprint (e.g., "SHA256:...")
+    Algorithm   string // Key algorithm (e.g., "ssh-ed25519")
 }
 ```
 
@@ -124,20 +132,51 @@ type TransferOptions struct {
 
 ## Security
 
-### Path Validation
+### Host Key Verification (TOFU)
 
-All path operations validate inputs:
+The SSH client implements Trust-On-First-Use (TOFU) host key verification:
 
 ```go
-func validatePath(path string) error {
-    if !filepath.IsAbs(path) {
-        return errors.New("path must be absolute")
-    }
-    if strings.Contains(path, "..") {
-        return errors.New("path traversal not allowed")
-    }
-    return nil
+// First connection: captures and stores host key fingerprint
+client, hostKeyInfo, err := sshclient.New(cfg)
+// hostKeyInfo contains the fingerprint to store in database
+
+// Subsequent connections: verify against stored fingerprint
+cfg.ExpectedHostKey = &sshclient.HostKeyInfo{
+    Fingerprint: storedFingerprint,  // e.g., "SHA256:..."
+    Algorithm:   storedAlgorithm,    // e.g., "ssh-ed25519"
 }
+client, _, err := sshclient.New(cfg)
+// Returns HostKeyError if fingerprint doesn't match
+```
+
+**Host key verification for external commands (rsync/scp):**
+
+When using rsync or scp, the client:
+1. Captures the host key via SSH connection
+2. Creates a temporary `known_hosts` file with the verified key
+3. Runs rsync/scp with `-o StrictHostKeyChecking=yes -o UserKnownHostsFile=<temp>`
+4. Cleans up the temporary file after command completes
+
+This ensures MITM protection even for external process invocations.
+
+### Path Validation
+
+All path operations validate inputs using the shared `pathutil` package:
+
+```go
+import "github.com/autobrr/qui/pkg/pathutil"
+
+// SSH requires absolute paths
+if err := pathutil.ValidateAbsolute(path); err != nil {
+    return err
+}
+
+// Checks for:
+// - Empty paths
+// - Null bytes (security issue)
+// - Path traversal attempts (..)
+// - Non-absolute paths (when required)
 ```
 
 ### Shell Quoting
@@ -191,9 +230,17 @@ func (e *SSHExecutor) CreateLinks(ctx, t, prep) (int, error) {
 
 | File | Purpose |
 |------|---------|
-| `client.go` | Client struct, command execution, file ops |
-| `pool.go` | Connection pooling with cleanup |
-| `transfer.go` | Rsync and SCP operations |
+| `client.go` | Client struct, command execution, file ops, host key verification |
+| `pool.go` | Connection pooling with cleanup and host key support |
+| `transfer.go` | Rsync and SCP operations with secure host key handling |
+| `sftp.go` | SFTP client for file transfers |
+| `sftp_transfer.go` | SFTP upload/download with progress tracking |
+
+### Related Packages
+
+| Package | Purpose |
+|---------|---------|
+| `pkg/pathutil` | Shared path validation (traversal, absolute path checks) |
 
 ## Testing
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/sftp"
+	"github.com/rs/zerolog/log"
 )
 
 // SFTPClient wraps an SFTP connection for file transfer operations.
@@ -134,8 +135,8 @@ func (s *SFTPClient) RemoveAll(path string) error {
 	var dirs []string
 
 	for walker.Step() {
-		if walker.Err() != nil {
-			continue
+		if err := walker.Err(); err != nil {
+			return fmt.Errorf("walk %s: %w", walker.Path(), err)
 		}
 		if walker.Stat().IsDir() {
 			dirs = append(dirs, walker.Path())
@@ -231,8 +232,10 @@ func (s *SFTPClient) CopyLocalToRemote(localPath, remotePath string) error {
 		return fmt.Errorf("copy data: %w", err)
 	}
 
-	// Preserve permissions (non-fatal if it fails)
-	_ = s.client.Chmod(remotePath, localInfo.Mode())
+	// Preserve permissions (non-fatal if it fails, but log the error)
+	if err := s.client.Chmod(remotePath, localInfo.Mode()); err != nil {
+		log.Warn().Err(err).Str("path", remotePath).Msg("failed to preserve permissions on remote file")
+	}
 
 	return nil
 }
@@ -267,8 +270,10 @@ func (s *SFTPClient) CopyRemoteToLocal(remotePath, localPath string) error {
 		return fmt.Errorf("copy data: %w", err)
 	}
 
-	// Preserve permissions (non-fatal if it fails)
-	_ = os.Chmod(localPath, remoteInfo.Mode())
+	// Preserve permissions (non-fatal if it fails, but log the error)
+	if err := os.Chmod(localPath, remoteInfo.Mode()); err != nil {
+		log.Warn().Err(err).Str("path", localPath).Msg("failed to preserve permissions on local file")
+	}
 
 	return nil
 }

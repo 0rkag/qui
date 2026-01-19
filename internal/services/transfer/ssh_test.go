@@ -578,3 +578,193 @@ func TestSSHExecutor_sshConfigFromConnection(t *testing.T) {
 // The connectionStore is accessed before checking link mode, so unit tests would need
 // a mock database setup which adds complexity. E2E tests in scripts/testing/run-test.sh
 // provide better coverage for these scenarios.
+
+func TestSSHExecutor_VerifyTransfer_DirectMode(t *testing.T) {
+	ctx := context.Background()
+	executor := &SSHExecutor{}
+
+	transfer := newTestTransfer(withLinkMode("direct"))
+	prep := &PrepareResult{
+		LinkMode: "direct",
+		Files:    []TorrentFile{{RelPath: "file.txt", AbsPath: "/src/file.txt", Size: 100}},
+	}
+
+	// Direct mode should skip verification entirely
+	err := executor.VerifyTransfer(ctx, transfer, prep)
+	assert.NoError(t, err)
+}
+
+func TestSSHExecutor_VerifyTransfer_NilPrep(t *testing.T) {
+	ctx := context.Background()
+	executor := &SSHExecutor{}
+
+	transfer := newTestTransfer()
+
+	// Nil prep should return error
+	err := executor.VerifyTransfer(ctx, transfer, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no preparation result")
+}
+
+func TestSSHExecutor_Rollback_DirectMode(t *testing.T) {
+	ctx := context.Background()
+	executor := &SSHExecutor{}
+
+	transfer := newTestTransfer(withLinkMode("direct"))
+	prep := &PrepareResult{
+		LinkMode:       "direct",
+		TargetSavePath: "/target/path",
+	}
+
+	// Direct mode rollback should be a no-op (nothing to clean up)
+	err := executor.Rollback(ctx, transfer, prep)
+	assert.NoError(t, err)
+}
+
+func TestSSHExecutor_Rollback_NilPrep(t *testing.T) {
+	ctx := context.Background()
+	executor := &SSHExecutor{}
+
+	transfer := newTestTransfer()
+
+	// Nil prep should not error (nothing to rollback)
+	err := executor.Rollback(ctx, transfer, nil)
+	assert.NoError(t, err)
+}
+
+func TestNewSSHExecutor(t *testing.T) {
+	sm := newMockSyncManager()
+	ip := newMockInstanceProvider()
+
+	executor := NewSSHExecutor(sm, ip, nil, nil)
+
+	assert.NotNil(t, executor)
+	assert.Equal(t, sm, executor.syncManager)
+	assert.Equal(t, ip, executor.instanceStore)
+	assert.NotNil(t, executor.sshPool) // Pool is created on construction
+}
+
+func TestSSHExecutor_linkModeFromTargetSettings(t *testing.T) {
+	tests := []struct {
+		name     string
+		target   *models.Instance
+		expected string
+	}{
+		{
+			name:     "hardlinks enabled",
+			target:   newTestInstance(1, withHardlinks(true)),
+			expected: "hardlink",
+		},
+		{
+			name: "reflinks enabled (hardlinks disabled)",
+			target: func() *models.Instance {
+				i := newTestInstance(1)
+				i.UseHardlinks = false
+				i.UseReflinks = true
+				return i
+			}(),
+			expected: "reflink",
+		},
+		{
+			name: "fallback mode enabled",
+			target: func() *models.Instance {
+				i := newTestInstance(1)
+				i.UseHardlinks = false
+				i.UseReflinks = false
+				i.FallbackToRegularMode = true
+				return i
+			}(),
+			expected: "copy",
+		},
+		{
+			name: "no linking options",
+			target: func() *models.Instance {
+				i := newTestInstance(1)
+				i.UseHardlinks = false
+				i.UseReflinks = false
+				i.FallbackToRegularMode = false
+				return i
+			}(),
+			expected: "direct",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := linkModeFromTargetSettings(tt.target)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestValidateRelPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		relPath string
+		wantErr bool
+	}{
+		{"valid simple path", "file.txt", false},
+		{"valid nested path", "dir/subdir/file.txt", false},
+		{"valid path with dots", "file.name.ext", false},
+		{"empty path", "", true},
+		{"absolute path", "/absolute/path", true},
+		{"parent traversal", "../etc/passwd", true},
+		{"double parent traversal", "../../etc/passwd", true},
+		{"hidden parent traversal", "dir/../../../etc/passwd", true},
+		{"starts with dot dot", "..", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRelPath(tt.relPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateRelPath(%q) error = %v, wantErr %v", tt.relPath, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSSHExecutor_Close(t *testing.T) {
+	sm := newMockSyncManager()
+	ip := newMockInstanceProvider()
+
+	executor := NewSSHExecutor(sm, ip, nil, nil)
+
+	// Close should not error even with nil pools
+	err := executor.Close()
+	assert.NoError(t, err)
+}
+
+func TestTorrentFile_Fields(t *testing.T) {
+	file := TorrentFile{
+		RelPath: "dir/file.mkv",
+		AbsPath: "/downloads/torrent/dir/file.mkv",
+		Size:    1024 * 1024 * 100, // 100MB
+	}
+
+	assert.Equal(t, "dir/file.mkv", file.RelPath)
+	assert.Equal(t, "/downloads/torrent/dir/file.mkv", file.AbsPath)
+	assert.Equal(t, int64(104857600), file.Size)
+}
+
+func TestPrepareResult_Fields(t *testing.T) {
+	prep := &PrepareResult{
+		TorrentName:    "Test Torrent",
+		SourceSavePath: "/source/path",
+		TargetSavePath: "/target/path",
+		LinkMode:       "hardlink",
+		Files:          []TorrentFile{{RelPath: "file.txt", Size: 100}},
+		TorrentData:    []byte("torrent data"),
+		Category:       "movies",
+		Tags:           []string{"hd", "remux"},
+	}
+
+	assert.Equal(t, "Test Torrent", prep.TorrentName)
+	assert.Equal(t, "/source/path", prep.SourceSavePath)
+	assert.Equal(t, "/target/path", prep.TargetSavePath)
+	assert.Equal(t, "hardlink", prep.LinkMode)
+	assert.Equal(t, 1, len(prep.Files))
+	assert.Equal(t, []byte("torrent data"), prep.TorrentData)
+	assert.Equal(t, "movies", prep.Category)
+	assert.Equal(t, []string{"hd", "remux"}, prep.Tags)
+}

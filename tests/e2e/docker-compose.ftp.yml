@@ -1,0 +1,56 @@
+# FTP Server for Integration Tests
+#
+# Usage:
+#   docker-compose -f tests/e2e/docker-compose.ftp.yml up -d
+#   go test -tags=ftp_integration -v ./pkg/ftpclient/...
+#   docker-compose -f tests/e2e/docker-compose.ftp.yml down
+#
+# Or with make:
+#   make test-ftp
+
+services:
+  ftpd:
+    image: fauria/vsftpd
+    container_name: qui-ftp-test
+    environment:
+      - FTP_USER=testuser
+      - FTP_PASS=testpass
+      - PASV_ADDRESS=127.0.0.1
+      - PASV_MIN_PORT=21100
+      - PASV_MAX_PORT=21110
+    ports:
+      - "21:21"
+      - "21100-21110:21100-21110"
+    volumes:
+      - ftp_data:/home/vsftpd/testuser
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "21"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Alternative: Pure-FTPd with TLS support
+  ftpd-tls:
+    image: stilliard/pure-ftpd
+    container_name: qui-ftp-tls-test
+    profiles:
+      - tls  # Only start with: docker-compose --profile tls up
+    environment:
+      - PUBLICHOST=localhost
+      - FTP_USER_NAME=testuser
+      - FTP_USER_PASS=testpass
+      - FTP_USER_HOME=/home/ftpusers/testuser
+      - FTP_PASSIVE_PORTS=21100:21110
+      - TLS_CN=localhost
+      - TLS_ORG=test
+      - TLS_C=US
+    ports:
+      - "2121:21"
+      - "30000-30009:30000-30009"
+    volumes:
+      - ftp_tls_data:/home/ftpusers
+
+volumes:
+  ftp_data:
+  ftp_tls_data:

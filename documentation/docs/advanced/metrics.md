@@ -31,9 +31,41 @@ QUI__METRICS_BASIC_AUTH_USERS="user:$2y$10$hash"  # Optional: basic auth
 
 ## Available Metrics
 
-- **Torrent counts** by status (downloading, seeding, paused, error)
-- **Transfer speeds** (upload/download bytes per second)
-- **Instance connection status**
+### Torrent Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `qbittorrent_torrents_downloading` | Gauge | `instance_id`, `instance_name` | Number of downloading torrents |
+| `qbittorrent_torrents_seeding` | Gauge | `instance_id`, `instance_name` | Number of seeding torrents |
+| `qbittorrent_torrents_paused` | Gauge | `instance_id`, `instance_name` | Number of paused torrents |
+| `qbittorrent_torrents_error` | Gauge | `instance_id`, `instance_name` | Number of torrents in error state |
+| `qbittorrent_torrents_checking` | Gauge | `instance_id`, `instance_name` | Number of torrents being checked |
+
+### Transfer Statistics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `qbittorrent_session_download_bytes` | Counter | `instance_id`, `instance_name` | Total downloaded data this session (bytes) |
+| `qbittorrent_session_upload_bytes` | Counter | `instance_id`, `instance_name` | Total uploaded data this session (bytes) |
+| `qbittorrent_alltime_download_bytes` | Counter | `instance_id`, `instance_name` | Total all-time downloaded data (bytes) |
+| `qbittorrent_alltime_upload_bytes` | Counter | `instance_id`, `instance_name` | Total all-time uploaded data (bytes) |
+
+### Instance Status
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `qbittorrent_instance_connection_status` | Gauge | `instance_id`, `instance_name` | Connection status (1=connected, 0=disconnected) |
+| `qbittorrent_scrape_errors_total` | Counter | `instance_id`, `instance_name`, `type` | Total scrape errors by type |
+
+### Internal Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `qui_db_wedged_transaction_total` | Counter | Wedged transaction detections (indicates a bug) |
+
+### Standard Go Metrics
+
+qui also exposes standard Go runtime metrics via the `go_*` and `process_*` prefixes (memory, goroutines, GC, etc.).
 
 ## Prometheus Configuration
 

@@ -161,12 +161,16 @@ func (e *LocalExecutor) CreateLinks(ctx context.Context, t *models.Transfer, pre
 	switch prep.LinkMode {
 	case "hardlink":
 		if err := hardlinktree.Create(plan); err != nil {
-			_ = hardlinktree.Rollback(plan)
+			if rbErr := hardlinktree.Rollback(plan); rbErr != nil {
+				log.Warn().Err(rbErr).Int64("id", t.ID).Msg("[TRANSFER-LOCAL] Rollback failed after hardlink error - orphaned files may remain")
+			}
 			return 0, fmt.Errorf("failed to create hardlinks: %w", err)
 		}
 	case "reflink":
 		if err := reflinktree.Create(plan); err != nil {
-			_ = reflinktree.Rollback(plan)
+			if rbErr := reflinktree.Rollback(plan); rbErr != nil {
+				log.Warn().Err(rbErr).Int64("id", t.ID).Msg("[TRANSFER-LOCAL] Rollback failed after reflink error - orphaned files may remain")
+			}
 			if prep.TargetInstance.FallbackToRegularMode {
 				log.Warn().
 					Err(err).
@@ -401,7 +405,11 @@ func (e *LocalExecutor) determineLinkMode(
 	} else if targetInstance.UseReflinks {
 		// Reflinks require same filesystem
 		if sameFS, err := fsutil.SameFilesystem(sourcePath, targetPath); err == nil && sameFS {
-			if supported, _ := reflinktree.SupportsReflink(targetPath); supported {
+			supported, reason := reflinktree.SupportsReflink(targetPath)
+			if !supported && reason != "" {
+				log.Debug().Str("path", targetPath).Str("reason", reason).Msg("[TRANSFER-LOCAL] Reflink not supported")
+			}
+			if supported {
 				return "reflink", nil
 			}
 		}

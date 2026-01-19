@@ -37,7 +37,7 @@ Get started in minutes:
 
 ## Community
 
-Join our friendly and welcoming community on [Discord](https://discord.autobrr.com/qui)! Connect with fellow autobrr users, get advice, and share your experiences.
+Join our friendly and welcoming community on [Discord](https://discord.autobrr.com/qui)! Connect with fellow qui users, get advice, and share your experiences.
 
 ## License
 

@@ -4331,6 +4331,265 @@ paths:
         '400':
           description: Invalid request
 
+  # Instance Connections API endpoints
+  /api/instances/{instanceID}/connections:
+    get:
+      tags:
+        - Instance Connections
+      summary: List connections
+      description: Get all SSH/FTP connections configured for an instance
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      responses:
+        '200':
+          description: List of connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InstanceConnection'
+    post:
+      tags:
+        - Instance Connections
+      summary: Create connection
+      description: Create a new SSH or FTP connection for an instance. At least one path mapping must exist before creating a connection.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConnectionRequest'
+      responses:
+        '201':
+          description: Connection created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceConnection'
+        '400':
+          description: Invalid request or no path mappings configured
+        '409':
+          description: Connection already exists for this type
+
+  /api/instances/{instanceID}/connections/test:
+    post:
+      tags:
+        - Instance Connections
+      summary: Test connection configuration
+      description: Test an SSH or FTP connection without saving it
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestConnectionRequest'
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+
+  /api/instances/{instanceID}/connections/{id}:
+    get:
+      tags:
+        - Instance Connections
+      summary: Get connection
+      description: Get details of a specific connection
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Connection ID
+      responses:
+        '200':
+          description: Connection details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceConnection'
+        '404':
+          description: Connection not found
+    put:
+      tags:
+        - Instance Connections
+      summary: Update connection
+      description: Update an existing SSH or FTP connection
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Connection ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConnectionRequest'
+      responses:
+        '200':
+          description: Connection updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceConnection'
+        '404':
+          description: Connection not found
+    delete:
+      tags:
+        - Instance Connections
+      summary: Delete connection
+      description: Delete an SSH or FTP connection
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Connection ID
+      responses:
+        '204':
+          description: Connection deleted
+        '404':
+          description: Connection not found
+
+  /api/instances/{instanceID}/connections/{id}/test:
+    post:
+      tags:
+        - Instance Connections
+      summary: Test existing connection
+      description: Test a saved SSH or FTP connection. For SSH connections, also stores host key on first successful connection (TOFU) and updates capabilities.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Connection ID
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTestResult'
+        '404':
+          description: Connection not found
+
+  /api/instances/{instanceID}/connections/{id}/accept-host-key:
+    post:
+      tags:
+        - Instance Connections
+      summary: Accept new host key
+      description: Accept a new SSH host key when there's a mismatch (e.g., server reinstalled). Only valid for SSH connections.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Connection ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptHostKeyRequest'
+      responses:
+        '200':
+          description: Host key accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Host key accepted"
+        '400':
+          description: Invalid request or not an SSH connection
+        '404':
+          description: Connection not found
+
+  /api/instances/{instanceID}/connections/{id}/terminal:
+    get:
+      tags:
+        - Instance Connections
+      summary: SSH terminal (WebSocket)
+      description: |
+        Establish a WebSocket connection for an interactive SSH terminal session.
+
+        This is a WebSocket endpoint. Connect using `ws://` or `wss://` protocol.
+
+        Message format:
+        - Client to server: JSON `{"type": "input", "data": "command"}` or `{"type": "resize", "cols": 80, "rows": 24}`
+        - Server to client: JSON `{"type": "output", "data": "terminal output"}`
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Connection ID
+      responses:
+        '101':
+          description: Switching to WebSocket protocol
+        '400':
+          description: Not an SSH connection
+        '404':
+          description: Connection not found
+
+  /api/instances/{instanceID}/torrents/{hash}/move:
+    post:
+      tags:
+        - Transfers
+      summary: Move torrent to another instance
+      description: Convenience endpoint to move a torrent from one instance to another. Creates a transfer with the source instance derived from the URL.
+      parameters:
+        - $ref: '#/components/parameters/instanceID'
+        - $ref: '#/components/parameters/hash'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveRequest'
+      responses:
+        '201':
+          description: Transfer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          description: Invalid request
+        '404':
+          description: Torrent not found
+        '409':
+          description: Transfer already exists for this torrent
+
   /health:
     get:
       tags:
@@ -6840,6 +7099,236 @@ components:
           type: boolean
           description: True if no mapping matched and the path was returned unchanged
 
+    # Instance Connection schemas
+    InstanceConnection:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier
+        instanceId:
+          type: integer
+          description: ID of the qBittorrent instance
+        type:
+          type: string
+          enum: [ssh_auto, ssh_rsync, ssh_sftp, ssh_scp, ftp_explicit, ftp_implicit, ftp_plain]
+          description: Connection type
+        host:
+          type: string
+          description: Remote host address
+        port:
+          type: integer
+          description: Remote port number
+        username:
+          type: string
+          description: Authentication username
+        privateKeyPath:
+          type: string
+          description: Path to SSH private key file (SSH connections only)
+        enabled:
+          type: boolean
+          description: Whether this connection is active
+        tlsSkipVerify:
+          type: boolean
+          description: Skip TLS certificate verification (FTP connections only)
+        hostKeyFingerprint:
+          type: string
+          description: Stored SSH host key fingerprint (TOFU)
+        hostKeyAlgorithm:
+          type: string
+          description: SSH host key algorithm
+        rsyncAvailable:
+          type: boolean
+          nullable: true
+          description: Whether rsync is available on remote
+        rsyncVersion:
+          type: string
+          description: Detected rsync version
+        sftpAvailable:
+          type: boolean
+          nullable: true
+          description: Whether SFTP is available
+        hardlinksSupported:
+          type: boolean
+          nullable: true
+          description: Whether remote supports hardlinks
+        reflinksSupported:
+          type: boolean
+          nullable: true
+          description: Whether remote supports reflinks
+        capabilitiesCheckedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When capabilities were last checked
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateConnectionRequest:
+      type: object
+      required:
+        - type
+        - host
+        - username
+      properties:
+        type:
+          type: string
+          enum: [ssh_auto, ssh_rsync, ssh_sftp, ssh_scp, ftp_explicit, ftp_implicit, ftp_plain]
+          description: Connection type
+        host:
+          type: string
+          description: Remote host address
+        port:
+          type: integer
+          description: Remote port (defaults based on type - 22 for SSH, 21 for FTP)
+        username:
+          type: string
+          description: Authentication username
+        password:
+          type: string
+          writeOnly: true
+          description: Authentication password
+        privateKeyPath:
+          type: string
+          description: Path to SSH private key file (SSH connections only)
+        enabled:
+          type: boolean
+          default: true
+          description: Whether this connection is active
+        tlsSkipVerify:
+          type: boolean
+          default: false
+          description: Skip TLS certificate verification (FTP connections only)
+
+    UpdateConnectionRequest:
+      type: object
+      properties:
+        host:
+          type: string
+          description: Remote host address
+        port:
+          type: integer
+          description: Remote port
+        username:
+          type: string
+          description: Authentication username
+        password:
+          type: string
+          writeOnly: true
+          description: Authentication password (leave empty to keep existing)
+        privateKeyPath:
+          type: string
+          description: Path to SSH private key file
+        enabled:
+          type: boolean
+          description: Whether this connection is active
+        tlsSkipVerify:
+          type: boolean
+          description: Skip TLS certificate verification
+
+    TestConnectionRequest:
+      type: object
+      required:
+        - type
+        - host
+        - username
+      properties:
+        type:
+          type: string
+          enum: [ssh_auto, ssh_rsync, ssh_sftp, ssh_scp, ftp_explicit, ftp_implicit, ftp_plain]
+          description: Connection type to test
+        host:
+          type: string
+          description: Remote host address
+        port:
+          type: integer
+          description: Remote port
+        username:
+          type: string
+          description: Authentication username
+        password:
+          type: string
+          writeOnly: true
+          description: Authentication password
+        privateKeyPath:
+          type: string
+          description: Path to SSH private key file
+        tlsSkipVerify:
+          type: boolean
+          description: Skip TLS certificate verification
+
+    ConnectionTestResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the connection test succeeded
+        message:
+          type: string
+          description: Human-readable result message
+        details:
+          type: string
+          description: Additional details (e.g., for host key mismatch)
+        hostKeyFingerprint:
+          type: string
+          description: SSH host key fingerprint (for TOFU)
+        hostKeyAlgorithm:
+          type: string
+          description: SSH host key algorithm
+        hostKeyMismatch:
+          type: boolean
+          description: True if host key changed from stored value
+        sshCapabilities:
+          $ref: '#/components/schemas/SSHCapabilities'
+        ftpCapabilities:
+          $ref: '#/components/schemas/FTPCapabilities'
+
+    SSHCapabilities:
+      type: object
+      properties:
+        rsyncAvailable:
+          type: boolean
+          description: Whether rsync is available
+        rsyncVersion:
+          type: string
+          description: rsync version string
+        sftpAvailable:
+          type: boolean
+          description: Whether SFTP subsystem is available
+        hardlinksSupported:
+          type: boolean
+          description: Whether filesystem supports hardlinks
+        reflinksSupported:
+          type: boolean
+          description: Whether filesystem supports reflinks (CoW)
+
+    FTPCapabilities:
+      type: object
+      properties:
+        tlsEnabled:
+          type: boolean
+          description: Whether TLS is enabled
+        passiveModeWorks:
+          type: boolean
+          description: Whether passive mode works
+
+    AcceptHostKeyRequest:
+      type: object
+      required:
+        - fingerprint
+      properties:
+        fingerprint:
+          type: string
+          description: The new host key fingerprint to accept
+        algorithm:
+          type: string
+          description: The key algorithm (e.g., ssh-ed25519)
+
 tags:
   - name: Authentication
     description: User authentication and session management
@@ -6869,6 +7358,8 @@ tags:
     description: Orphan file scanning and cleanup (files on disk not associated with any torrent)
   - name: Path Mappings
     description: Manage path mappings between instance-specific paths and canonical paths for cross-instance transfers
+  - name: Instance Connections
+    description: Manage SSH and FTP connections for remote qBittorrent instances
   - name: Transfers
     description: Move torrents between qBittorrent instances with hardlink/reflink support
   - name: Theme Licenses

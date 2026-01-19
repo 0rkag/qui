@@ -170,7 +170,9 @@ func (s *Service) doPrepare(ctx context.Context, t *models.Transfer, executor Tr
 	if err != nil {
 		// Save the partial info before failing
 		if prep != nil {
-			_ = s.store.Update(ctx, t)
+			if updateErr := s.store.Update(ctx, t); updateErr != nil {
+				log.Warn().Err(updateErr).Int64("id", t.ID).Msg("[TRANSFER] Failed to save partial prep info")
+			}
 		}
 		s.fail(ctx, t, err.Error())
 		return
@@ -332,6 +334,7 @@ func (s *Service) continueAfterAdd(ctx context.Context, t *models.Transfer, exec
 // doPauseSource pauses the torrent on the source instance
 func (s *Service) doPauseSource(ctx context.Context, t *models.Transfer) {
 	if s.syncManager == nil {
+		log.Warn().Int64("id", t.ID).Msg("[TRANSFER] Cannot pause source - sync manager not configured")
 		return
 	}
 	if err := s.syncManager.BulkAction(ctx, t.SourceInstanceID, []string{t.TorrentHash}, "pause"); err != nil {

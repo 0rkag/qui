@@ -63,8 +63,14 @@ func NewFTPExecutor(
 func (e *FTPExecutor) CanHandle(source, target *models.Instance) bool {
 	ctx := context.Background()
 
-	sourceFTP, _ := e.connectionStore.GetFTPByInstance(ctx, source.ID)
-	targetFTP, _ := e.connectionStore.GetFTPByInstance(ctx, target.ID)
+	sourceFTP, err := e.connectionStore.GetFTPByInstance(ctx, source.ID)
+	if err != nil && err != models.ErrConnectionNotFound {
+		log.Warn().Err(err).Int("instanceID", source.ID).Msg("[TRANSFER-FTP] Error checking source FTP connection")
+	}
+	targetFTP, err := e.connectionStore.GetFTPByInstance(ctx, target.ID)
+	if err != nil && err != models.ErrConnectionNotFound {
+		log.Warn().Err(err).Int("instanceID", target.ID).Msg("[TRANSFER-FTP] Error checking target FTP connection")
+	}
 
 	sourceHasFTP := sourceFTP != nil && sourceFTP.Enabled
 	targetHasFTP := targetFTP != nil && targetFTP.Enabled
@@ -118,8 +124,14 @@ func (e *FTPExecutor) Prepare(ctx context.Context, t *models.Transfer) (*Prepare
 
 // Execute performs the file transfer.
 func (e *FTPExecutor) Execute(ctx context.Context, t *models.Transfer, prep *PrepareResult) error {
-	sourceFTP, _ := e.connectionStore.GetFTPByInstance(ctx, prep.SourceInstance.ID)
-	targetFTP, _ := e.connectionStore.GetFTPByInstance(ctx, prep.TargetInstance.ID)
+	sourceFTP, err := e.connectionStore.GetFTPByInstance(ctx, prep.SourceInstance.ID)
+	if err != nil && err != models.ErrConnectionNotFound {
+		return fmt.Errorf("failed to get source FTP connection: %w", err)
+	}
+	targetFTP, err := e.connectionStore.GetFTPByInstance(ctx, prep.TargetInstance.ID)
+	if err != nil && err != models.ErrConnectionNotFound {
+		return fmt.Errorf("failed to get target FTP connection: %w", err)
+	}
 
 	transferred, err := e.transferFiles(ctx, t, prep, sourceFTP, targetFTP)
 	if err != nil {

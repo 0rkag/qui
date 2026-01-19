@@ -467,3 +467,366 @@ func TestIntegration_Pool(t *testing.T) {
 		t.Errorf("exec on pooled client failed: %v", err)
 	}
 }
+
+// SFTP Integration Tests
+
+func TestIntegration_SFTP_NewClient(t *testing.T) {
+	cfg := getTestConfig(t)
+
+	client, _, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	sftp, err := client.NewSFTPClient()
+	if err != nil {
+		t.Fatalf("NewSFTPClient failed: %v", err)
+	}
+	defer sftp.Close()
+
+	// Verify SFTP client works
+	exists, err := sftp.Exists("/tmp")
+	if err != nil {
+		t.Fatalf("Exists failed: %v", err)
+	}
+	if !exists {
+		t.Error("/tmp should exist")
+	}
+}
+
+func TestIntegration_SFTP_CopyLocalToRemote(t *testing.T) {
+	cfg := getTestConfig(t)
+
+	client, _, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	sftp, err := client.NewSFTPClient()
+	if err != nil {
+		t.Fatalf("NewSFTPClient failed: %v", err)
+	}
+	defer sftp.Close()
+
+	workdir := getTestWorkdir()
+
+	// Setup: create remote directory
+	if err := sftp.MkdirAll(workdir); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sftp.RemoveAll(workdir); err != nil {
+			t.Logf("Cleanup: RemoveAll(%s) error: %v", workdir, err)
+		}
+	})
+
+	// Create local temp file
+	localFile, err := os.CreateTemp("", "sftp_test_*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp failed: %v", err)
+	}
+	localPath := localFile.Name()
+	t.Cleanup(func() { os.Remove(localPath) })
+
+	testContent := []byte("test content for SFTP copy")
+	if _, err := localFile.Write(testContent); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	localFile.Close()
+
+	// Copy to remote
+	remotePath := filepath.Join(workdir, "copied_file.txt")
+	err = sftp.CopyLocalToRemote(localPath, remotePath)
+	if err != nil {
+		t.Fatalf("CopyLocalToRemote failed: %v", err)
+	}
+
+	// Verify remote file exists
+	exists, err := sftp.Exists(remotePath)
+	if err != nil {
+		t.Fatalf("Exists failed: %v", err)
+	}
+	if !exists {
+		t.Error("remote file should exist after copy")
+	}
+
+	// Verify size matches
+	info, err := sftp.Stat(remotePath)
+	if err != nil {
+		t.Fatalf("Stat failed: %v", err)
+	}
+	if info.Size() != int64(len(testContent)) {
+		t.Errorf("remote file size = %d, want %d", info.Size(), len(testContent))
+	}
+}
+
+func TestIntegration_SFTP_CopyRemoteToLocal(t *testing.T) {
+	cfg := getTestConfig(t)
+
+	client, _, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	sftp, err := client.NewSFTPClient()
+	if err != nil {
+		t.Fatalf("NewSFTPClient failed: %v", err)
+	}
+	defer sftp.Close()
+
+	workdir := getTestWorkdir()
+
+	// Setup: create remote directory and file
+	if err := sftp.MkdirAll(workdir); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sftp.RemoveAll(workdir); err != nil {
+			t.Logf("Cleanup: RemoveAll(%s) error: %v", workdir, err)
+		}
+	})
+
+	// Create remote file via SFTP
+	remotePath := filepath.Join(workdir, "source_file.txt")
+	testContent := []byte("remote content for SFTP download")
+	remoteFile, err := sftp.Create(remotePath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if _, err := remoteFile.Write(testContent); err != nil {
+		remoteFile.Close()
+		t.Fatalf("Write failed: %v", err)
+	}
+	remoteFile.Close()
+
+	// Create local temp path
+	localDir, err := os.MkdirTemp("", "sftp_test_")
+	if err != nil {
+		t.Fatalf("MkdirTemp failed: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(localDir) })
+	localPath := filepath.Join(localDir, "downloaded_file.txt")
+
+	// Copy from remote
+	err = sftp.CopyRemoteToLocal(remotePath, localPath)
+	if err != nil {
+		t.Fatalf("CopyRemoteToLocal failed: %v", err)
+	}
+
+	// Verify local file exists and has correct content
+	content, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	if string(content) != string(testContent) {
+		t.Errorf("local file content = %q, want %q", content, testContent)
+	}
+}
+
+func TestIntegration_SFTP_RemoveAll(t *testing.T) {
+	cfg := getTestConfig(t)
+
+	client, _, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	sftp, err := client.NewSFTPClient()
+	if err != nil {
+		t.Fatalf("NewSFTPClient failed: %v", err)
+	}
+	defer sftp.Close()
+
+	workdir := getTestWorkdir()
+
+	// Create nested directory structure
+	nestedDir := filepath.Join(workdir, "level1", "level2", "level3")
+	if err := sftp.MkdirAll(nestedDir); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+
+	// Create files at different levels
+	files := []string{
+		filepath.Join(workdir, "root.txt"),
+		filepath.Join(workdir, "level1", "file1.txt"),
+		filepath.Join(workdir, "level1", "level2", "file2.txt"),
+		filepath.Join(workdir, "level1", "level2", "level3", "file3.txt"),
+	}
+	for _, path := range files {
+		f, err := sftp.Create(path)
+		if err != nil {
+			t.Fatalf("Create(%s) failed: %v", path, err)
+		}
+		f.Write([]byte("test"))
+		f.Close()
+	}
+
+	// Verify structure exists
+	exists, err := sftp.Exists(nestedDir)
+	if err != nil {
+		t.Fatalf("Exists failed: %v", err)
+	}
+	if !exists {
+		t.Fatal("nested directory should exist before RemoveAll")
+	}
+
+	// RemoveAll from root
+	err = sftp.RemoveAll(workdir)
+	if err != nil {
+		t.Fatalf("RemoveAll failed: %v", err)
+	}
+
+	// Verify everything is gone
+	exists, err = sftp.Exists(workdir)
+	if err != nil {
+		t.Fatalf("Exists failed: %v", err)
+	}
+	if exists {
+		t.Error("workdir should not exist after RemoveAll")
+	}
+}
+
+func TestIntegration_SFTP_Upload(t *testing.T) {
+	cfg := getTestConfig(t)
+
+	client, _, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	sftp, err := client.NewSFTPClient()
+	if err != nil {
+		t.Fatalf("NewSFTPClient failed: %v", err)
+	}
+	defer sftp.Close()
+
+	workdir := getTestWorkdir()
+	ctx := context.Background()
+
+	// Setup
+	if err := sftp.MkdirAll(workdir); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sftp.RemoveAll(workdir); err != nil {
+			t.Logf("Cleanup: RemoveAll(%s) error: %v", workdir, err)
+		}
+	})
+
+	// Create local file
+	localFile, err := os.CreateTemp("", "sftp_upload_*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp failed: %v", err)
+	}
+	localPath := localFile.Name()
+	t.Cleanup(func() { os.Remove(localPath) })
+
+	testContent := []byte("upload test content with progress tracking")
+	if _, err := localFile.Write(testContent); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	localFile.Close()
+
+	// Upload with progress tracking
+	var progressCalled bool
+	opts := SFTPTransferOptions{
+		OnProgress: func(transferred, total int64) {
+			progressCalled = true
+		},
+	}
+
+	remotePath := filepath.Join(workdir, "uploaded.txt")
+	err = sftp.Upload(ctx, localPath, remotePath, opts)
+	if err != nil {
+		t.Fatalf("Upload failed: %v", err)
+	}
+
+	// Verify
+	exists, err := sftp.Exists(remotePath)
+	if err != nil {
+		t.Fatalf("Exists failed: %v", err)
+	}
+	if !exists {
+		t.Error("uploaded file should exist")
+	}
+	if !progressCalled {
+		t.Error("progress callback should have been called")
+	}
+}
+
+func TestIntegration_SFTP_Download(t *testing.T) {
+	cfg := getTestConfig(t)
+
+	client, _, err := New(cfg)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	sftp, err := client.NewSFTPClient()
+	if err != nil {
+		t.Fatalf("NewSFTPClient failed: %v", err)
+	}
+	defer sftp.Close()
+
+	workdir := getTestWorkdir()
+	ctx := context.Background()
+
+	// Setup
+	if err := sftp.MkdirAll(workdir); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sftp.RemoveAll(workdir); err != nil {
+			t.Logf("Cleanup: RemoveAll(%s) error: %v", workdir, err)
+		}
+	})
+
+	// Create remote file
+	remotePath := filepath.Join(workdir, "download_source.txt")
+	testContent := []byte("download test content with progress")
+	remoteFile, err := sftp.Create(remotePath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	remoteFile.Write(testContent)
+	remoteFile.Close()
+
+	// Create local temp dir
+	localDir, err := os.MkdirTemp("", "sftp_download_")
+	if err != nil {
+		t.Fatalf("MkdirTemp failed: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(localDir) })
+	localPath := filepath.Join(localDir, "downloaded.txt")
+
+	// Download with progress
+	var progressCalled bool
+	opts := SFTPTransferOptions{
+		OnProgress: func(transferred, total int64) {
+			progressCalled = true
+		},
+	}
+
+	err = sftp.Download(ctx, remotePath, localPath, opts)
+	if err != nil {
+		t.Fatalf("Download failed: %v", err)
+	}
+
+	// Verify
+	content, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("ReadFile failed: %v", err)
+	}
+	if string(content) != string(testContent) {
+		t.Errorf("downloaded content = %q, want %q", content, testContent)
+	}
+	if !progressCalled {
+		t.Error("progress callback should have been called")
+	}
+}

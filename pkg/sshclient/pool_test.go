@@ -20,11 +20,11 @@ func TestPool_ConfigKey(t *testing.T) {
 	}{
 		{
 			cfg:      &Config{Username: "user", Host: "host", Port: 22},
-			expected: "user@host:22",
+			expected: "user@host:22:", // trailing colon for empty keyHash
 		},
 		{
 			cfg:      &Config{Username: "admin", Host: "192.168.1.1", Port: 2222},
-			expected: "admin@192.168.1.1:2222",
+			expected: "admin@192.168.1.1:2222:", // trailing colon for empty keyHash
 		},
 	}
 

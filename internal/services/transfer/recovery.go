@@ -5,6 +5,7 @@ package transfer
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -75,7 +76,9 @@ func (s *Service) recoverTransfer(ctx context.Context, t *models.Transfer) {
 
 	case models.TransferStateLinksCreating:
 		// Links may be partial - attempt rollback and restart
-		s.attemptRollback(ctx, t)
+		if err := s.attemptRollback(ctx, t); err != nil {
+			log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Recovery: rollback issues, proceeding anyway")
+		}
 		s.updateState(ctx, t, models.TransferStatePending, "")
 		s.tryEnqueue(t.ID)
 
@@ -91,7 +94,9 @@ func (s *Service) recoverTransfer(ctx context.Context, t *models.Transfer) {
 			s.updateState(ctx, t, models.TransferStateTorrentAdded, "")
 		} else {
 			// Torrent wasn't added - rollback links and restart
-			s.attemptRollback(ctx, t)
+			if err := s.attemptRollback(ctx, t); err != nil {
+				log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Recovery: rollback issues, proceeding anyway")
+			}
 			s.updateState(ctx, t, models.TransferStatePending, "")
 		}
 		s.tryEnqueue(t.ID)
@@ -174,27 +179,30 @@ func (s *Service) requeuePending() {
 
 // attemptRollback tries to rollback created links for a transfer during recovery.
 // It loads instances, selects an executor, and delegates the rollback.
-func (s *Service) attemptRollback(ctx context.Context, t *models.Transfer) {
+// Returns an error if rollback couldn't be attempted or failed.
+func (s *Service) attemptRollback(ctx context.Context, t *models.Transfer) error {
 	sourceInstance, err := s.instanceStore.Get(ctx, t.SourceInstanceID)
 	if err != nil {
 		log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Recovery: failed to get source instance for rollback")
-		return
+		return fmt.Errorf("get source instance: %w", err)
 	}
 
 	targetInstance, err := s.instanceStore.Get(ctx, t.TargetInstanceID)
 	if err != nil {
 		log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Recovery: failed to get target instance for rollback")
-		return
+		return fmt.Errorf("get target instance: %w", err)
 	}
 
 	executor, err := s.registry.SelectExecutor(sourceInstance, targetInstance)
 	if err != nil {
 		log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Recovery: no executor for rollback")
-		return
+		return fmt.Errorf("select executor: %w", err)
 	}
 
 	prep := s.buildPrepareResultFromTransfer(t, sourceInstance, targetInstance)
 	if err := executor.Rollback(ctx, t, prep); err != nil {
 		log.Warn().Err(err).Int64("id", t.ID).Msg("[TRANSFER] Recovery: rollback failed")
+		return fmt.Errorf("rollback: %w", err)
 	}
+	return nil
 }

@@ -217,9 +217,17 @@ Transfers can be triggered automatically via [automations](/docs/features/automa
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| Delete from source | Remove torrent from source after transfer | Yes |
-| Preserve category | Keep the same category on target | Yes |
-| Preserve tags | Keep the same tags on target | Yes |
+| **Source Action** | What to do with source torrent after transfer | `keep` |
+| | `keep` - Leave torrent on source instance | |
+| | `pause` - Pause torrent on source instance | |
+| | `delete` - Remove torrent from source instance | |
+| **File Exists Action** | What to do if files already exist at target | `abort` |
+| | `abort` - Fail the transfer if files exist | |
+| | `skip` - Skip existing files | |
+| | `overwrite` - Replace existing files | |
+| **Verify Transfer** | Verify file integrity with checksums after transfer | No |
+| **Preserve Category** | Keep the same category on target | Yes |
+| **Preserve Tags** | Keep the same tags on target | Yes |
 
 ## REST API
 
@@ -243,11 +251,22 @@ Content-Type: application/json
   "sourceInstanceId": 1,
   "targetInstanceId": 2,
   "torrentHash": "abc123...",
-  "deleteFromSource": true,
+  "sourceAction": "delete",
+  "fileExistsAction": "abort",
+  "verifyTransfer": false,
   "preserveCategory": true,
   "preserveTags": true
 }
 ```
+
+**Query parameters for listing transfers:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `limit` | Maximum results (default: 50, max: 1000) |
+| `offset` | Skip first N results |
+| `instanceId` | Filter by instance ID |
+| `states` | Comma-separated list of states to filter |
 
 ## Troubleshooting
 
