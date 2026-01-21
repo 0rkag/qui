@@ -18,7 +18,7 @@ INTERNAL_WEB_DIR = internal/web
 # Go build flags with Polar credentials
 LDFLAGS = -ldflags "-X github.com/autobrr/qui/internal/buildinfo.Version=$(VERSION) -X main.PolarOrgID=$(POLAR_ORG_ID)"
 
-.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
+.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-openapi test-e2e test-e2e-instances test-e2e-torrents test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
 
 # Default target
 all: build
@@ -107,6 +107,30 @@ test-openapi:
 	@echo "Validating OpenAPI specification..."
 	go test -v ./internal/web/swagger
 
+# Run e2e tests against real torrent clients
+test-e2e:
+	@echo "Running e2e tests..."
+	cd e2e && go test -v -count=1 ./tests/...
+
+# Run e2e tests for instances only
+test-e2e-instances:
+	@echo "Running e2e instance tests..."
+	cd e2e && go test -v -count=1 -run TestInstance ./tests/...
+
+# Run e2e tests for torrents only
+test-e2e-torrents:
+	@echo "Running e2e torrent tests..."
+	cd e2e && go test -v -count=1 -run TestTorrent ./tests/...
+
+# Clean up e2e test containers
+test-e2e-clean:
+	@echo "Cleaning up e2e test containers..."
+	docker rm -f $$(docker ps -aq --filter "label=org.testcontainers=true") 2>/dev/null || true
+	docker network prune -f
+
+# Run all tests (unit + e2e)
+test-all: test test-e2e
+
 # Format changed code only (fast, for iteration)
 fmt:
 	@echo "Formatting changed Go code..."
@@ -180,8 +204,13 @@ help:
 	@echo "  make dev-expose     - Run frontend dev server exposed on 0.0.0.0"
 	@echo ""
 	@echo "Testing:"
-	@echo "  make test           - Run all tests with race detection"
+	@echo "  make test           - Run unit tests with race detection"
 	@echo "  make test-openapi   - Validate OpenAPI specification"
+	@echo "  make test-e2e       - Run e2e tests against real torrent clients"
+	@echo "  make test-e2e-instances - Run e2e instance tests only"
+	@echo "  make test-e2e-torrents  - Run e2e torrent tests only"
+	@echo "  make test-e2e-clean - Clean up e2e test containers"
+	@echo "  make test-all       - Run all tests (unit + e2e)"
 	@echo ""
 	@echo "Linting:"
 	@echo "  make lint           - Lint changed files only (fast, for iteration)"

@@ -1,0 +1,93 @@
+package client
+
+// InstanceConfig is the request body for creating/updating instances.
+type InstanceConfig struct {
+	Name          string  `json:"name"`
+	Host          string  `json:"host"`
+	Username      string  `json:"username"`
+	Password      string  `json:"password,omitempty"`
+	BasicUsername *string `json:"basicUsername,omitempty"`
+	BasicPassword *string `json:"basicPassword,omitempty"`
+	TLSSkipVerify bool    `json:"tlsSkipVerify,omitempty"`
+}
+
+// Instance represents an instance response from the API.
+type Instance struct {
+	ID               int    `json:"id"`
+	Name             string `json:"name"`
+	Host             string `json:"host"`
+	Username         string `json:"username"`
+	TLSSkipVerify    bool   `json:"tlsSkipVerify"`
+	Connected        bool   `json:"connected"`
+	ConnectionStatus string `json:"connectionStatus,omitempty"`
+	IsActive         bool   `json:"isActive"`
+}
+
+// Capabilities represents instance capabilities.
+type Capabilities struct {
+	WebAPIVersion           string `json:"webApiVersion"`
+	SupportsSetTags         bool   `json:"supportsSetTags"`
+	SupportsTorrentCreation bool   `json:"supportsTorrentCreation"`
+	SupportsTorrentExport   bool   `json:"supportsTorrentExport"`
+	SupportsTrackerEditing  bool   `json:"supportsTrackerEditing"`
+	SupportsFilePriority    bool   `json:"supportsFilePriority"`
+	SupportsSubcategories   bool   `json:"supportsSubcategories"`
+	SupportsRenameTorrent   bool   `json:"supportsRenameTorrent"`
+	SupportsRenameFile      bool   `json:"supportsRenameFile"`
+	SupportsRenameFolder    bool   `json:"supportsRenameFolder"`
+}
+
+// AddTorrentOptions for adding torrents.
+type AddTorrentOptions struct {
+	SavePath     string   `json:"savepath,omitempty"`
+	Category     string   `json:"category,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	Paused       bool     `json:"paused,omitempty"`
+	SkipChecking bool     `json:"skip_checking,omitempty"`
+}
+
+// Torrent represents a torrent in the list response.
+type Torrent struct {
+	Hash        string   `json:"hash"`
+	Name        string   `json:"name"`
+	State       string   `json:"state"`
+	Progress    float64  `json:"progress"`
+	Size        int64    `json:"size"`
+	Downloaded  int64    `json:"downloaded"`
+	Uploaded    int64    `json:"uploaded"`
+	DlSpeed     int64    `json:"dlspeed"`
+	UpSpeed     int64    `json:"upspeed"`
+	Category    string   `json:"category"`
+	Tags        []string `json:"tags"`
+	SavePath    string   `json:"save_path"`
+	AddedOn     int64    `json:"added_on"`
+	Ratio       float64  `json:"ratio"`
+	NumSeeds    int      `json:"num_seeds"`
+	NumLeechers int      `json:"num_leechs"`
+}
+
+// TorrentListResponse is the response from listing torrents.
+type TorrentListResponse struct {
+	Torrents []Torrent `json:"torrents"`
+	Total    int       `json:"total"`
+	Stats    Stats     `json:"stats"`
+}
+
+// Stats contains aggregate statistics.
+type Stats struct {
+	Total              int   `json:"total"`
+	Downloading        int   `json:"downloading"`
+	Seeding            int   `json:"seeding"`
+	Paused             int   `json:"paused"`
+	Checking           int   `json:"checking"`
+	Error              int   `json:"error"`
+	TotalDownloadSpeed int64 `json:"totalDownloadSpeed"`
+	TotalUploadSpeed   int64 `json:"totalUploadSpeed"`
+}
+
+// FilterOptions for filtering torrent lists.
+type FilterOptions struct {
+	Status     []string `json:"status,omitempty"`
+	Categories []string `json:"categories,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+}
