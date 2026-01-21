@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -16,11 +17,11 @@ func TestInstanceCRUD(t *testing.T) {
 		t.Skip("skipping e2e test")
 	}
 
-	env := containers.SharedEnv(t)
-	c := client.New(env.QuiURL)
+	ctx := context.Background()
+	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	t.Cleanup(func() { env.Teardown(ctx) })
 
-	// Setup: authenticate
-	c.Setup(t, "admin", "adminadmin")
+	c := env.Client()
 
 	t.Run("create qbittorrent instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
@@ -29,7 +30,7 @@ func TestInstanceCRUD(t *testing.T) {
 			Username: "admin",
 			Password: env.QBitPassword,
 		})
-		require.Greater(t, id, 0)
+		require.Positive(t, id)
 		t.Cleanup(func() { c.DeleteInstance(t, id) })
 
 		// Verify it exists
@@ -114,18 +115,15 @@ func TestInstanceCRUD(t *testing.T) {
 }
 
 func TestInstanceCapabilities(t *testing.T) {
-	// Skip: qBittorrent session/backoff issues cause intermittent failures.
-	// The capabilities API works - this is a test infrastructure issue with
-	// the temp password session timing in qBittorrent 4.6.7.
-	t.Skip("Skipped due to qBittorrent session timing issues - capabilities work but backoff is triggered")
-
 	if testing.Short() {
 		t.Skip("skipping e2e test")
 	}
 
-	env := containers.SharedEnv(t)
-	c := client.New(env.QuiURL)
-	c.Login(t, "admin", "adminadmin")
+	ctx := context.Background()
+	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	t.Cleanup(func() { env.Teardown(ctx) })
+
+	c := env.Client()
 
 	id := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "caps-test",
@@ -139,7 +137,7 @@ func TestInstanceCapabilities(t *testing.T) {
 	// qui uses exponential backoff starting at 1s, so we need longer waits
 	var caps client.Capabilities
 	var err error
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		caps, err = c.TryGetCapabilities(t, id)
 		if err == nil {
 			break

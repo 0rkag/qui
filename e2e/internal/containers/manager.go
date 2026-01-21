@@ -2,6 +2,7 @@
 package containers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/autobrr/qui/e2e/internal/client"
 )
 
 const (
@@ -39,6 +42,14 @@ type TestEnv struct {
 	QBitURL      string // URL for qui to connect to qBittorrent (internal network)
 	QBitExtURL   string // External URL for direct access if needed
 	QBitPassword string // qBittorrent WebUI password (extracted from logs)
+
+	// qui credentials (set during setup)
+	quiClient *client.Client
+}
+
+// Client returns an authenticated client for qui's API.
+func (e *TestEnv) Client() *client.Client {
+	return e.quiClient
 }
 
 // Config for test environment.
@@ -72,24 +83,47 @@ func Setup(ctx context.Context, t *testing.T, cfg Config) *TestEnv {
 	env.Network = net
 	t.Logf("Created network: %s", net.Name)
 
-	// Start qBittorrent
-	env.QBittorrent = startQBittorrent(ctx, t, net.Name, cfg.Timeout)
+	// Prepare qui Dockerfile (must be done before building request)
+	absPath, err := filepath.Abs(cfg.QuiSourcePath)
+	if err != nil {
+		t.Fatalf("failed to get absolute path: %v", err)
+	}
+	platform := "linux/" + runtime.GOARCH
+	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
+	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
+	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
+		t.Fatalf("failed to create e2e Dockerfile: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(e2eDockerfilePath) })
 
+	// Build container requests
+	qbitReq := qbittorrentRequest(net.Name, cfg.Timeout)
+	quiReq := quiRequest(absPath, platform, net.Name, cfg.Timeout)
+
+	// Start both containers in parallel
+	t.Log("Starting containers in parallel...")
+	containers, err := testcontainers.ParallelContainers(ctx, []testcontainers.GenericContainerRequest{
+		{ContainerRequest: qbitReq, Started: true},
+		{ContainerRequest: quiReq, Started: true},
+	}, testcontainers.ParallelContainersOptions{})
+	if err != nil {
+		t.Fatalf("failed to start containers: %v", err)
+	}
+
+	env.QBittorrent = containers[0]
+	env.Qui = containers[1]
+
+	// Setup qBittorrent (extract password, configure settings)
 	qbitPort, err := env.QBittorrent.MappedPort(ctx, qbitWebUIPort)
 	if err != nil {
 		t.Fatalf("failed to get qbittorrent port: %v", err)
 	}
-	env.QBitExtURL = fmt.Sprintf("http://localhost:%s", qbitPort.Port())
-	// qui runs on host, so it connects to qBittorrent via localhost mapped port
-	env.QBitURL = env.QBitExtURL
+	env.QBitExtURL = "http://localhost:" + qbitPort.Port()
 
-	// Extract password from container logs
 	env.QBitPassword = extractQBitPassword(ctx, t, env.QBittorrent)
 	t.Logf("qBittorrent ready at %s (password: %s)", env.QBitExtURL, env.QBitPassword)
 
-	// Configure qBittorrent settings to reduce ban duration and enable UPnP
-	// Uses fixed port mapping so host port matches WEBUI_PORT (required for auth)
-	if err := configureQBittorrent(t, env.QBitExtURL, env.QBitPassword); err != nil {
+	if err := configureQBittorrent(ctx, t, env.QBitExtURL, env.QBitPassword); err != nil {
 		t.Logf("Warning: failed to configure qBittorrent settings: %v (tests may be flaky with rapid retries)", err)
 	}
 
@@ -100,15 +134,16 @@ func Setup(ctx context.Context, t *testing.T, cfg Config) *TestEnv {
 	}
 	env.QBitURL = fmt.Sprintf("http://%s:%s", qbitIP, qbitWebUIPort)
 
-	// Start qui in Docker container
-	env.Qui = startQuiFromDocker(ctx, t, net.Name, cfg.QuiSourcePath, cfg.Timeout)
-
+	// Setup qui URL
 	quiPort, err := env.Qui.MappedPort(ctx, "7476")
 	if err != nil {
 		t.Fatalf("failed to get qui port: %v", err)
 	}
-	env.QuiURL = fmt.Sprintf("http://localhost:%s", quiPort.Port())
+	env.QuiURL = "http://localhost:" + quiPort.Port()
 	t.Logf("qui ready at %s", env.QuiURL)
+
+	// Configure qui (create admin user)
+	env.quiClient = configureQui(ctx, t, env.QuiURL, "admin", "adminadmin")
 
 	return env
 }
@@ -126,30 +161,10 @@ func (e *TestEnv) Teardown(ctx context.Context) {
 	}
 }
 
-// startQuiFromDocker builds and runs qui in a Docker container.
-// It creates a modified Dockerfile on-the-fly to handle BUILDPLATFORM
-// since testcontainers doesn't use BuildKit which auto-sets that variable.
-func startQuiFromDocker(ctx context.Context, t *testing.T, networkName, sourcePath string, timeout time.Duration) testcontainers.Container {
-	t.Helper()
-
-	absPath, err := filepath.Abs(sourcePath)
-	if err != nil {
-		t.Fatalf("failed to get absolute path: %v", err)
-	}
-
-	// Detect current platform for BUILDPLATFORM
-	platform := fmt.Sprintf("linux/%s", runtime.GOARCH)
-
-	// Create modified Dockerfile that works without BuildKit's auto BUILDPLATFORM
-	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
-	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
-
-	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
-		t.Fatalf("failed to create e2e Dockerfile: %v", err)
-	}
-	t.Cleanup(func() { os.Remove(e2eDockerfilePath) })
-
-	req := testcontainers.ContainerRequest{
+// quiRequest returns a container request for qui.
+// Caller must create the Dockerfile.e2e file before calling this.
+func quiRequest(absPath, platform, networkName string, timeout time.Duration) testcontainers.ContainerRequest {
+	return testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    absPath,
 			Dockerfile: "distrib/docker/Dockerfile.e2e",
@@ -157,6 +172,7 @@ func startQuiFromDocker(ctx context.Context, t *testing.T, networkName, sourcePa
 				"VERSION": ptr("e2e-test"),
 			},
 			PrintBuildLog: true,
+			KeepImage:     true, // Reuse built image across test runs
 			BuildOptionsModifier: func(opts *build.ImageBuildOptions) {
 				opts.Platform = platform
 			},
@@ -171,16 +187,6 @@ func startQuiFromDocker(ctx context.Context, t *testing.T, networkName, sourcePa
 			WithPort("7476").
 			WithStartupTimeout(timeout),
 	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("failed to start qui from docker: %v", err)
-	}
-
-	return container
 }
 
 // createE2EDockerfile creates a modified Dockerfile for e2e tests.
@@ -196,11 +202,11 @@ func createE2EDockerfile(srcPath, dstPath, platform string) error {
 	modified := strings.Replace(
 		string(content),
 		"FROM --platform=$BUILDPLATFORM",
-		fmt.Sprintf("FROM --platform=%s", platform),
+		"FROM --platform="+platform,
 		1,
 	)
 
-	if err := os.WriteFile(dstPath, []byte(modified), 0644); err != nil {
+	if err := os.WriteFile(dstPath, []byte(modified), 0o600); err != nil {
 		return fmt.Errorf("write dockerfile: %w", err)
 	}
 
@@ -211,12 +217,11 @@ func ptr(s string) *string {
 	return &s
 }
 
-func startQBittorrent(ctx context.Context, t *testing.T, networkName string, timeout time.Duration) testcontainers.Container {
-	t.Helper()
-
+// qbittorrentRequest returns a container request for qBittorrent.
+func qbittorrentRequest(networkName string, timeout time.Duration) testcontainers.ContainerRequest {
 	// Use fixed port mapping so WEBUI_PORT matches the exposed host port
 	// This is required because qBittorrent validates that the request port matches WEBUI_PORT
-	req := testcontainers.ContainerRequest{
+	return testcontainers.ContainerRequest{
 		Image: "linuxserver/qbittorrent:4.6.7",
 		Env: map[string]string{
 			"PUID":            "1000",
@@ -230,23 +235,13 @@ func startQBittorrent(ctx context.Context, t *testing.T, networkName string, tim
 			qbitTorrentPort + ":" + qbitTorrentPort + "/tcp",
 			qbitTorrentPort + ":" + qbitTorrentPort + "/udp",
 		},
-		Networks:     []string{networkName},
+		Networks: []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {"qbittorrent"},
 		},
 		// Wait for the temp password log message which indicates WebUI is ready
 		WaitingFor: wait.ForLog("temporary password is provided").WithStartupTimeout(timeout),
 	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("failed to start qbittorrent: %v", err)
-	}
-
-	return container
 }
 
 // extractQBitPassword extracts the temp password from qBittorrent container logs.
@@ -278,7 +273,7 @@ func extractQBitPassword(ctx context.Context, t *testing.T, container testcontai
 // - Reduces ban duration to 1 second (avoid test failures from rapid retries)
 // - Enables UPnP for torrent ports
 // Returns error if configuration fails (non-fatal, caller can decide to warn or fail).
-func configureQBittorrent(t *testing.T, baseURL, password string) error {
+func configureQBittorrent(ctx context.Context, t *testing.T, baseURL, password string) error {
 	t.Helper()
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -291,8 +286,8 @@ func configureQBittorrent(t *testing.T, baseURL, password string) error {
 	var cookies []*http.Cookie
 	var loginErr error
 
-	for i := 0; i < 5; i++ {
-		req, err := http.NewRequest("POST", baseURL+"/api/v2/auth/login", strings.NewReader(loginData.Encode()))
+	for range 5 {
+		req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/api/v2/auth/login", strings.NewReader(loginData.Encode()))
 		if err != nil {
 			loginErr = fmt.Errorf("create request failed: %w", err)
 			time.Sleep(500 * time.Millisecond)
@@ -346,7 +341,7 @@ func configureQBittorrent(t *testing.T, baseURL, password string) error {
 	prefsData := url.Values{}
 	prefsData.Set("json", string(settingsJSON))
 
-	prefsReq, err := http.NewRequest("POST", baseURL+"/api/v2/app/setPreferences", strings.NewReader(prefsData.Encode()))
+	prefsReq, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/api/v2/app/setPreferences", strings.NewReader(prefsData.Encode()))
 	if err != nil {
 		return fmt.Errorf("create preferences request: %w", err)
 	}
@@ -371,3 +366,42 @@ func configureQBittorrent(t *testing.T, baseURL, password string) error {
 	return nil
 }
 
+// configureQui creates the initial admin user and returns an authenticated client.
+func configureQui(ctx context.Context, t *testing.T, baseURL, username, password string) *client.Client {
+	t.Helper()
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	body := map[string]string{
+		"username": username,
+		"password": password,
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("failed to marshal setup body: %v", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/api/auth/setup", bytes.NewReader(jsonBody))
+	if err != nil {
+		t.Fatalf("failed to create setup request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to setup qui: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("qui setup failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	// Create client and set cookies from response
+	c := client.New(baseURL)
+	c.SetCookies(resp.Cookies())
+
+	t.Logf("qui configured: admin user created")
+	return c
+}

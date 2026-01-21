@@ -48,22 +48,22 @@ type AddTorrentOptions struct {
 
 // Torrent represents a torrent in the list response.
 type Torrent struct {
-	Hash        string   `json:"hash"`
-	Name        string   `json:"name"`
-	State       string   `json:"state"`
-	Progress    float64  `json:"progress"`
-	Size        int64    `json:"size"`
-	Downloaded  int64    `json:"downloaded"`
-	Uploaded    int64    `json:"uploaded"`
-	DlSpeed     int64    `json:"dlspeed"`
-	UpSpeed     int64    `json:"upspeed"`
-	Category    string   `json:"category"`
-	Tags        []string `json:"tags"`
-	SavePath    string   `json:"save_path"`
-	AddedOn     int64    `json:"added_on"`
-	Ratio       float64  `json:"ratio"`
-	NumSeeds    int      `json:"num_seeds"`
-	NumLeechers int      `json:"num_leechs"`
+	Hash        string  `json:"hash"`
+	Name        string  `json:"name"`
+	State       string  `json:"state"`
+	Progress    float64 `json:"progress"`
+	Size        int64   `json:"size"`
+	Downloaded  int64   `json:"downloaded"`
+	Uploaded    int64   `json:"uploaded"`
+	DlSpeed     int64   `json:"dlspeed"`
+	UpSpeed     int64   `json:"upspeed"`
+	Category    string  `json:"category"`
+	Tags        string  `json:"tags"` // Comma-separated string from API
+	SavePath    string  `json:"save_path"`
+	AddedOn     int64   `json:"added_on"`
+	Ratio       float64 `json:"ratio"`
+	NumSeeds    int     `json:"num_seeds"`
+	NumLeechers int     `json:"num_leechs"`
 }
 
 // TorrentListResponse is the response from listing torrents.

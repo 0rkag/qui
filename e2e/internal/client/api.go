@@ -3,11 +3,13 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +28,7 @@ func New(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			// Don't follow redirects - we want to catch them
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
@@ -71,6 +73,11 @@ func (c *Client) extractCookies(resp *http.Response) {
 	c.cookies = resp.Cookies()
 }
 
+// SetCookies sets the client's session cookies (used by container setup).
+func (c *Client) SetCookies(cookies []*http.Cookie) {
+	c.cookies = cookies
+}
+
 // ---- Instances ----
 
 // CreateInstance creates a new instance and returns its ID.
@@ -109,7 +116,7 @@ func (c *Client) GetInstance(t *testing.T, id int) Instance {
 
 // GetInstanceRaw retrieves an instance and returns the raw response for error testing.
 // Uses list endpoint and checks if instance exists.
-func (c *Client) GetInstanceRaw(t *testing.T, id int) *http.Response {
+func (c *Client) GetInstanceRaw(t *testing.T, _ int) *http.Response {
 	t.Helper()
 	// Since there's no direct GET endpoint, we use the list and check
 	resp := c.get(t, "/api/instances")
@@ -249,32 +256,77 @@ func (c *Client) AddTorrent(t *testing.T, instanceID int, torrentData []byte, op
 }
 
 // AddTorrentFromMagnet adds a torrent from a magnet link and returns the hash.
+// The hash is extracted from the magnet link itself since the API doesn't return it.
 func (c *Client) AddTorrentFromMagnet(t *testing.T, instanceID int, magnet string, opts AddTorrentOptions) string {
 	t.Helper()
 
-	body := map[string]any{
-		"urls":     []string{magnet},
-		"savepath": opts.SavePath,
-		"category": opts.Category,
-		"paused":   opts.Paused,
-		"tags":     opts.Tags,
+	// Extract hash from magnet link (btih parameter)
+	hash := extractHashFromMagnet(magnet)
+	if hash == "" {
+		t.Fatalf("could not extract hash from magnet link: %s", magnet)
 	}
 
+	// Build multipart form
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add magnet URL
+	require(t, writer.WriteField("urls", magnet))
+
+	// Add options
+	if opts.SavePath != "" {
+		require(t, writer.WriteField("savepath", opts.SavePath))
+	}
+	if opts.Category != "" {
+		require(t, writer.WriteField("category", opts.Category))
+	}
+	if opts.Paused {
+		require(t, writer.WriteField("paused", "true"))
+	}
+	if len(opts.Tags) > 0 {
+		require(t, writer.WriteField("tags", strings.Join(opts.Tags, ",")))
+	}
+
+	require(t, writer.Close())
+
 	url := fmt.Sprintf("/api/instances/%d/torrents", instanceID)
-	resp := c.post(t, url, body)
+	req := c.newRequest(t, "POST", url, &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp := c.do(t, req)
 	defer resp.Body.Close()
 
-	requireStatus(t, resp, http.StatusOK)
+	requireStatus(t, resp, http.StatusCreated)
 
+	// API returns {"message": "...", "added": N, "failed": N}
 	var result struct {
-		Added []string `json:"added"`
+		Added   int    `json:"added"`
+		Failed  int    `json:"failed"`
+		Message string `json:"message"`
 	}
 	decodeJSON(t, resp.Body, &result)
 
-	if len(result.Added) == 0 {
-		t.Fatal("no torrent hash returned")
+	if result.Added == 0 {
+		t.Fatalf("torrent not added: %s", result.Message)
 	}
-	return result.Added[0]
+
+	return hash
+}
+
+// extractHashFromMagnet extracts the btih hash from a magnet link.
+func extractHashFromMagnet(magnet string) string {
+	// Parse: magnet:?xt=urn:btih:HASH&...
+	const prefix = "urn:btih:"
+	idx := strings.Index(strings.ToLower(magnet), prefix)
+	if idx == -1 {
+		return ""
+	}
+	start := idx + len(prefix)
+	end := start
+	for end < len(magnet) && magnet[end] != '&' {
+		end++
+	}
+	return strings.ToLower(magnet[start:end])
 }
 
 // ListTorrents returns torrents for an instance with optional filters.
@@ -320,16 +372,21 @@ func (c *Client) DeleteTorrent(t *testing.T, instanceID int, hash string, delete
 	c.DeleteTorrents(t, instanceID, []string{hash}, deleteFiles)
 }
 
-// DeleteTorrents removes multiple torrents.
+// DeleteTorrents removes multiple torrents via the bulk action endpoint.
 func (c *Client) DeleteTorrents(t *testing.T, instanceID int, hashes []string, deleteFiles bool) {
 	t.Helper()
 
-	body := map[string]any{
-		"hashes":      hashes,
-		"deleteFiles": deleteFiles,
+	action := "delete"
+	if deleteFiles {
+		action = "deleteWithFiles"
 	}
 
-	url := fmt.Sprintf("/api/instances/%d/torrents/delete", instanceID)
+	body := map[string]any{
+		"hashes": hashes,
+		"action": action,
+	}
+
+	url := fmt.Sprintf("/api/instances/%d/torrents/bulk-action", instanceID)
 	resp := c.post(t, url, body)
 	defer resp.Body.Close()
 
@@ -459,7 +516,7 @@ func (c *Client) newRequest(t *testing.T, method, path string, body io.Reader) *
 	t.Helper()
 
 	url := c.baseURL + path
-	req, err := http.NewRequest(method, url, body)
+	req, err := http.NewRequestWithContext(context.Background(), method, url, body)
 	require(t, err)
 
 	// Add session cookies
