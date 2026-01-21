@@ -46,6 +46,12 @@ type AddTorrentOptions struct {
 	SkipChecking bool     `json:"skip_checking,omitempty"`
 }
 
+// Category represents a qBittorrent category.
+type Category struct {
+	Name     string `json:"name"`
+	SavePath string `json:"savePath"`
+}
+
 // Torrent represents a torrent in the list response.
 type Torrent struct {
 	Hash        string  `json:"hash"`

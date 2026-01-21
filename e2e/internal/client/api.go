@@ -450,11 +450,123 @@ func (c *Client) AddTags(t *testing.T, instanceID int, hashes []string, tags []s
 	body := map[string]any{
 		"action": "addTags",
 		"hashes": hashes,
-		"tags":   tags,
+		"tags":   strings.Join(tags, ","),
 	}
 
 	url := fmt.Sprintf("/api/instances/%d/torrents/bulk-action", instanceID)
 	resp := c.post(t, url, body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// RemoveTags removes tags from multiple torrents.
+func (c *Client) RemoveTags(t *testing.T, instanceID int, hashes []string, tags []string) {
+	t.Helper()
+
+	body := map[string]any{
+		"action": "removeTags",
+		"hashes": hashes,
+		"tags":   strings.Join(tags, ","),
+	}
+
+	url := fmt.Sprintf("/api/instances/%d/torrents/bulk-action", instanceID)
+	resp := c.post(t, url, body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// ---- Categories ----
+
+// GetCategories returns all categories for an instance.
+func (c *Client) GetCategories(t *testing.T, instanceID int) map[string]Category {
+	t.Helper()
+
+	url := fmt.Sprintf("/api/instances/%d/categories", instanceID)
+	resp := c.get(t, url)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result map[string]Category
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// CreateCategory creates a new category.
+func (c *Client) CreateCategory(t *testing.T, instanceID int, name, savePath string) {
+	t.Helper()
+
+	body := map[string]string{
+		"name":     name,
+		"savePath": savePath,
+	}
+
+	url := fmt.Sprintf("/api/instances/%d/categories", instanceID)
+	resp := c.post(t, url, body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusCreated)
+}
+
+// DeleteCategory removes a category.
+func (c *Client) DeleteCategory(t *testing.T, instanceID int, name string) {
+	t.Helper()
+
+	body := map[string]any{
+		"categories": []string{name},
+	}
+
+	url := fmt.Sprintf("/api/instances/%d/categories", instanceID)
+	resp := c.deleteWithBody(t, url, body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// ---- Tags ----
+
+// GetTags returns all tags for an instance.
+func (c *Client) GetTags(t *testing.T, instanceID int) []string {
+	t.Helper()
+
+	url := fmt.Sprintf("/api/instances/%d/tags", instanceID)
+	resp := c.get(t, url)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result []string
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// CreateTags creates new tags.
+func (c *Client) CreateTags(t *testing.T, instanceID int, tags []string) {
+	t.Helper()
+
+	body := map[string]any{
+		"tags": tags,
+	}
+
+	url := fmt.Sprintf("/api/instances/%d/tags", instanceID)
+	resp := c.post(t, url, body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusCreated)
+}
+
+// DeleteTags removes tags.
+func (c *Client) DeleteTags(t *testing.T, instanceID int, tags []string) {
+	t.Helper()
+
+	body := map[string]any{
+		"tags": tags,
+	}
+
+	url := fmt.Sprintf("/api/instances/%d/tags", instanceID)
+	resp := c.deleteWithBody(t, url, body)
 	defer resp.Body.Close()
 
 	requireStatus(t, resp, http.StatusOK)
@@ -509,6 +621,17 @@ func (c *Client) put(t *testing.T, path string, body any) *http.Response {
 func (c *Client) delete(t *testing.T, path string) *http.Response {
 	t.Helper()
 	req := c.newRequest(t, "DELETE", path, nil)
+	return c.do(t, req)
+}
+
+func (c *Client) deleteWithBody(t *testing.T, path string, body any) *http.Response {
+	t.Helper()
+
+	jsonBody, err := json.Marshal(body)
+	require(t, err)
+
+	req := c.newRequest(t, "DELETE", path, bytes.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
 	return c.do(t, req)
 }
 
