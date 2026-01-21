@@ -16,6 +16,7 @@ func TestInstanceCRUD(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test")
 	}
+	t.Parallel()
 
 	ctx := context.Background()
 	env := containers.Setup(ctx, t, containers.DefaultConfig())
@@ -118,6 +119,7 @@ func TestInstanceCapabilities(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test")
 	}
+	t.Parallel()
 
 	ctx := context.Background()
 	env := containers.Setup(ctx, t, containers.DefaultConfig())
