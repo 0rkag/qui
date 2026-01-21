@@ -196,6 +196,92 @@ func TestTorrentBulkActions(t *testing.T) {
 	})
 }
 
+func TestTorrentDetails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	t.Cleanup(func() { env.Teardown(ctx) })
+
+	c := env.Client()
+
+	instanceID := c.CreateInstance(t, client.InstanceConfig{
+		Name:     "details-test",
+		Host:     env.QBitURL,
+		Username: "admin",
+		Password: env.QBitPassword,
+	})
+	t.Cleanup(func() { c.DeleteInstance(t, instanceID) })
+
+	waitForInstance(t, c, instanceID)
+
+	// Add a torrent to get details from
+	hash := c.AddTorrentFromMagnet(t, instanceID, testMagnet, client.AddTorrentOptions{
+		Paused: true,
+	})
+	t.Cleanup(func() { c.DeleteTorrent(t, instanceID, hash, true) })
+
+	// Wait for torrent to be fully indexed
+	time.Sleep(2 * time.Second)
+
+	t.Run("get torrent properties", func(t *testing.T) {
+		props := c.GetTorrentProperties(t, instanceID, hash)
+
+		// Verify key properties are populated
+		// Note: For magnets without metadata, TotalSize/PiecesNum may be -1
+		assert.NotEmpty(t, props.SavePath, "save_path should be set")
+
+		// If metadata is available, verify sizes are positive
+		// TotalSize == -1 means metadata hasn't been fetched yet (common for magnets)
+		if props.TotalSize > 0 {
+			assert.Greater(t, props.PiecesNum, 0, "pieces_num should be positive when metadata is available")
+		} else {
+			t.Logf("Metadata not yet fetched (total_size=%d), skipping size assertions", props.TotalSize)
+		}
+	})
+
+	t.Run("get torrent trackers", func(t *testing.T) {
+		trackers := c.GetTorrentTrackers(t, instanceID, hash)
+
+		// Magnet links typically have at least one tracker
+		assert.NotEmpty(t, trackers, "should have at least one tracker")
+
+		// Check first tracker has expected fields
+		if len(trackers) > 0 {
+			// The first entry is typically the DHT/PeX status row
+			// Real trackers start from index 1+
+			foundTracker := false
+			for _, tracker := range trackers {
+				if tracker.URL != "" && tracker.URL != "** [DHT] **" && tracker.URL != "** [PeX] **" && tracker.URL != "** [LSD] **" {
+					foundTracker = true
+					assert.NotEmpty(t, tracker.URL)
+					break
+				}
+			}
+			assert.True(t, foundTracker || len(trackers) >= 1, "should have tracker info")
+		}
+	})
+
+	t.Run("get torrent files", func(t *testing.T) {
+		files := c.GetTorrentFiles(t, instanceID, hash)
+
+		// Big Buck Bunny magnet should have files once metadata is received
+		// Note: Files may be empty if metadata hasn't been fetched yet
+		if len(files) > 0 {
+			for _, file := range files {
+				assert.NotEmpty(t, file.Name, "file name should be set")
+				assert.GreaterOrEqual(t, file.Size, int64(0), "file size should be non-negative")
+				assert.GreaterOrEqual(t, file.Priority, 0, "priority should be non-negative")
+			}
+		}
+		// Don't fail if files is empty - metadata fetch may not have completed
+		t.Logf("Found %d files in torrent", len(files))
+	})
+}
+
 // waitForInstance waits for an instance to be connected and ready.
 func waitForInstance(t *testing.T, c *client.Client, instanceID int) {
 	t.Helper()

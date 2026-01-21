@@ -36,6 +36,40 @@ const (
 	maxRandomPort = 60000
 )
 
+// Default qBittorrent image to use if not specified
+const defaultQBitImage = "linuxserver/qbittorrent:5.1.4"
+
+// Supported qBittorrent images for version matrix testing.
+// Run with QUI_E2E_QBIT_IMAGE=<image> to test different versions.
+var supportedQBitImages = map[string]string{
+	// 4.5.x series
+	"4.5.5":              "linuxserver/qbittorrent:4.5.5",
+	"4.5.5-libtorrentv2": "linuxserver/qbittorrent:4.5.5-libtorrentv2",
+	// 4.6.x series
+	"4.6.7":              "linuxserver/qbittorrent:4.6.7",
+	"4.6.7-libtorrentv2": "linuxserver/qbittorrent:4.6.7-libtorrentv2",
+	// 5.0.x series (v2 is default in 5.x)
+	"5.0.2":              "linuxserver/qbittorrent:5.0.2",
+	"5.0.2-libtorrentv1": "linuxserver/qbittorrent:5.0.2-libtorrentv1",
+	// 5.1.x series (latest)
+	"5.1.4":              "linuxserver/qbittorrent:5.1.4",
+	"5.1.4-libtorrentv1": "linuxserver/qbittorrent:5.1.4-libtorrentv1",
+}
+
+// getQBitImage returns the qBittorrent image to use for tests.
+// Checks QUI_E2E_QBIT_IMAGE env var, falls back to default.
+func getQBitImage() string {
+	if img := os.Getenv("QUI_E2E_QBIT_IMAGE"); img != "" {
+		// Check if it's a short name (e.g., "4.6.7")
+		if fullImg, ok := supportedQBitImages[img]; ok {
+			return fullImg
+		}
+		// Otherwise use as-is (full image name)
+		return img
+	}
+	return defaultQBitImage
+}
+
 // portMutex protects random port generation to avoid collisions in parallel tests
 var portMutex sync.Mutex
 
@@ -253,6 +287,9 @@ func Setup(ctx context.Context, t *testing.T, cfg Config) *TestEnv {
 func SetupShared(ctx context.Context, cfg Config) (*TestEnv, error) {
 	env := &TestEnv{}
 
+	// Log which qBittorrent image we're using (useful for version matrix testing)
+	fmt.Printf("Using qBittorrent image: %s\n", getQBitImage())
+
 	// Create shared network
 	net, err := network.New(ctx)
 	if err != nil {
@@ -457,7 +494,7 @@ func qbittorrentRequest(networkName string, timeout time.Duration, webUIPort, to
 	torrentPortStr := strconv.Itoa(torrentPort)
 
 	return testcontainers.ContainerRequest{
-		Image: "linuxserver/qbittorrent:4.6.7",
+		Image: getQBitImage(),
 		Env: map[string]string{
 			"PUID":            "1000",
 			"PGID":            "1000",
@@ -474,8 +511,9 @@ func qbittorrentRequest(networkName string, timeout time.Duration, webUIPort, to
 		NetworkAliases: map[string][]string{
 			networkName: {"qbittorrent"},
 		},
-		// Wait for the temp password log message which indicates WebUI is ready
-		WaitingFor: wait.ForLog("temporary password is provided").WithStartupTimeout(timeout),
+		// Wait for linuxserver init to complete - works across all versions
+		// After this log, the WebUI port is open and ready
+		WaitingFor: wait.ForLog("[ls.io-init] done.").WithStartupTimeout(timeout),
 	}
 }
 
@@ -491,6 +529,7 @@ func extractQBitPassword(ctx context.Context, t *testing.T, container testcontai
 }
 
 // extractQBitPasswordShared extracts the temp password without requiring testing.T.
+// For qBittorrent 4.6+, extracts from logs. For older versions, returns default "adminadmin".
 func extractQBitPasswordShared(ctx context.Context, container testcontainers.Container) (string, error) {
 	logs, err := container.Logs(ctx)
 	if err != nil {
@@ -504,10 +543,12 @@ func extractQBitPasswordShared(ctx context.Context, container testcontainers.Con
 	}
 
 	// Parse: "A temporary password is provided for this session: ABC123"
+	// This is only present in qBittorrent 4.6+
 	re := regexp.MustCompile(`temporary password is provided for this session: (\S+)`)
 	matches := re.FindSubmatch(logBytes)
 	if len(matches) < 2 {
-		return "", fmt.Errorf("could not find qBittorrent password in logs")
+		// qBittorrent < 4.6 uses default password "adminadmin"
+		return "adminadmin", nil
 	}
 
 	return string(matches[1]), nil

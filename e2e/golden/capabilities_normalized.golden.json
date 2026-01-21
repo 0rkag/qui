@@ -1,16 +1,16 @@
 {
   "supportsFilePriority": true,
   "supportsFreeSpacePathSource": true,
-  "supportsPathAutocomplete": false,
+  "supportsPathAutocomplete": true,
   "supportsRenameFile": true,
   "supportsRenameFolder": true,
   "supportsRenameTorrent": true,
-  "supportsSetTags": false,
+  "supportsSetTags": true,
   "supportsSubcategories": true,
-  "supportsTorrentCreation": false,
+  "supportsTorrentCreation": true,
   "supportsTorrentExport": true,
   "supportsTorrentTmpPath": true,
   "supportsTrackerEditing": true,
-  "supportsTrackerHealth": false,
-  "webAPIVersion": "2.9.3"
+  "supportsTrackerHealth": true,
+  "webAPIVersion": "2.11.4"
 }

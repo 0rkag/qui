@@ -154,3 +154,180 @@ func TestInstanceCapabilities(t *testing.T) {
 	assert.True(t, caps.SupportsTorrentExport)
 	assert.True(t, caps.SupportsFilePriority)
 }
+
+func TestInstanceConnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	t.Cleanup(func() { env.Teardown(ctx) })
+
+	c := env.Client()
+
+	t.Run("test connection succeeds for healthy instance", func(t *testing.T) {
+		id := c.CreateInstance(t, client.InstanceConfig{
+			Name:     "conn-test",
+			Host:     env.QBitURL,
+			Username: "admin",
+			Password: env.QBitPassword,
+		})
+		t.Cleanup(func() { c.DeleteInstance(t, id) })
+
+		// Wait for instance to connect first
+		for i := range 10 {
+			_, err := c.TryGetCapabilities(t, id)
+			if err == nil {
+				break
+			}
+			t.Logf("Waiting for instance to connect (attempt %d)", i+1)
+			time.Sleep(time.Second)
+		}
+
+		// Test connection
+		result := c.TestConnection(t, id)
+		assert.True(t, result.Connected, "connection should succeed")
+		assert.Contains(t, result.Message, "successful")
+		assert.Empty(t, result.Error)
+	})
+
+	t.Run("test connection fails for disabled instance", func(t *testing.T) {
+		id := c.CreateInstance(t, client.InstanceConfig{
+			Name:     "disabled-test",
+			Host:     env.QBitURL,
+			Username: "admin",
+			Password: env.QBitPassword,
+		})
+		t.Cleanup(func() { c.DeleteInstance(t, id) })
+
+		// Wait then disable
+		for range 10 {
+			_, err := c.TryGetCapabilities(t, id)
+			if err == nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+
+		c.UpdateInstanceStatus(t, id, false) // Disable
+
+		result := c.TestConnection(t, id)
+		assert.False(t, result.Connected)
+		assert.Contains(t, result.Message, "disabled")
+	})
+}
+
+func TestInstanceStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	t.Cleanup(func() { env.Teardown(ctx) })
+
+	c := env.Client()
+
+	t.Run("disable and re-enable instance", func(t *testing.T) {
+		id := c.CreateInstance(t, client.InstanceConfig{
+			Name:     "status-test",
+			Host:     env.QBitURL,
+			Username: "admin",
+			Password: env.QBitPassword,
+		})
+		t.Cleanup(func() { c.DeleteInstance(t, id) })
+
+		// Wait for instance to connect
+		for range 10 {
+			_, err := c.TryGetCapabilities(t, id)
+			if err == nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+
+		// Verify initially active
+		inst := c.GetInstance(t, id)
+		assert.True(t, inst.IsActive, "instance should be active initially")
+
+		// Disable instance
+		disabled := c.UpdateInstanceStatus(t, id, false)
+		assert.False(t, disabled.IsActive, "instance should be disabled")
+		assert.Equal(t, id, disabled.ID)
+
+		// Verify via list
+		inst = c.GetInstance(t, id)
+		assert.False(t, inst.IsActive)
+
+		// Re-enable instance
+		enabled := c.UpdateInstanceStatus(t, id, true)
+		assert.True(t, enabled.IsActive, "instance should be re-enabled")
+
+		// Verify via list
+		inst = c.GetInstance(t, id)
+		assert.True(t, inst.IsActive)
+	})
+}
+
+func TestInstanceOrder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	t.Cleanup(func() { env.Teardown(ctx) })
+
+	c := env.Client()
+
+	// Create three instances
+	id1 := c.CreateInstance(t, client.InstanceConfig{
+		Name:     "order-1",
+		Host:     env.QBitURL,
+		Username: "admin",
+		Password: env.QBitPassword,
+	})
+	t.Cleanup(func() { c.DeleteInstance(t, id1) })
+
+	id2 := c.CreateInstance(t, client.InstanceConfig{
+		Name:     "order-2",
+		Host:     env.QBitURL,
+		Username: "admin",
+		Password: env.QBitPassword,
+	})
+	t.Cleanup(func() { c.DeleteInstance(t, id2) })
+
+	id3 := c.CreateInstance(t, client.InstanceConfig{
+		Name:     "order-3",
+		Host:     env.QBitURL,
+		Username: "admin",
+		Password: env.QBitPassword,
+	})
+	t.Cleanup(func() { c.DeleteInstance(t, id3) })
+
+	t.Run("reorder instances", func(t *testing.T) {
+		// Get current order
+		instances := c.ListInstances(t)
+		require.Len(t, instances, 3)
+
+		// Reorder: 3, 1, 2
+		newOrder := []int{id3, id1, id2}
+		reordered := c.UpdateInstanceOrder(t, newOrder)
+
+		// Verify new order
+		require.Len(t, reordered, 3)
+		assert.Equal(t, id3, reordered[0].ID, "first should be id3")
+		assert.Equal(t, id1, reordered[1].ID, "second should be id1")
+		assert.Equal(t, id2, reordered[2].ID, "third should be id2")
+
+		// Verify order persists via list
+		instances = c.ListInstances(t)
+		assert.Equal(t, id3, instances[0].ID)
+		assert.Equal(t, id1, instances[1].ID)
+		assert.Equal(t, id2, instances[2].ID)
+	})
+}

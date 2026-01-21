@@ -21,6 +21,14 @@ type Instance struct {
 	Connected        bool   `json:"connected"`
 	ConnectionStatus string `json:"connectionStatus,omitempty"`
 	IsActive         bool   `json:"isActive"`
+	DisplayOrder     int    `json:"displayOrder"`
+}
+
+// TestConnectionResponse is the response from testing an instance connection.
+type TestConnectionResponse struct {
+	Connected bool   `json:"connected"`
+	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // Capabilities represents instance capabilities.
@@ -96,4 +104,42 @@ type FilterOptions struct {
 	Status     []string `json:"status,omitempty"`
 	Categories []string `json:"categories,omitempty"`
 	Tags       []string `json:"tags,omitempty"`
+}
+
+// TorrentProperties represents detailed properties of a torrent.
+// Only includes fields relevant for e2e testing.
+type TorrentProperties struct {
+	SavePath   string `json:"save_path"`
+	TotalSize  int64  `json:"total_size"`
+	PiecesNum  int    `json:"pieces_num"`
+	PieceSize  int64  `json:"piece_size"`
+	AddedOn    int64  `json:"addition_date"`
+	Comment    string `json:"comment"`
+	CreatedBy  string `json:"created_by"`
+	IsPrivate  bool   `json:"isPrivate"`
+	HasMetdata bool   `json:"has_metadata,omitempty"`
+}
+
+// Tracker represents a torrent tracker.
+type Tracker struct {
+	URL           string `json:"url"`
+	Status        int    `json:"status"`
+	Tier          int    `json:"tier"`
+	NumPeers      int    `json:"num_peers"`
+	NumSeeds      int    `json:"num_seeds"`
+	NumLeechers   int    `json:"num_leeches"`
+	NumDownloaded int    `json:"num_downloaded"`
+	Msg           string `json:"msg"`
+}
+
+// TorrentFile represents a file within a torrent.
+type TorrentFile struct {
+	Index        int     `json:"index"`
+	Name         string  `json:"name"`
+	Size         int64   `json:"size"`
+	Progress     float64 `json:"progress"`
+	Priority     int     `json:"priority"`
+	IsSeed       bool    `json:"is_seed"`
+	PieceRange   []int   `json:"piece_range"`
+	Availability float64 `json:"availability"`
 }

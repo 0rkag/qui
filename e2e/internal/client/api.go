@@ -81,6 +81,56 @@ func (c *Client) SetCookies(cookies []*http.Cookie) {
 
 // ---- Instances ----
 
+// TestConnection tests the connection to an instance.
+func (c *Client) TestConnection(t *testing.T, id int) TestConnectionResponse {
+	t.Helper()
+
+	resp := c.post(t, fmt.Sprintf("/api/instances/%d/test", id), nil)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result TestConnectionResponse
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// UpdateInstanceStatus enables or disables an instance.
+func (c *Client) UpdateInstanceStatus(t *testing.T, id int, isActive bool) Instance {
+	t.Helper()
+
+	body := map[string]bool{
+		"isActive": isActive,
+	}
+
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/status", id), body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result Instance
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// UpdateInstanceOrder updates the display order of instances.
+func (c *Client) UpdateInstanceOrder(t *testing.T, instanceIDs []int) []Instance {
+	t.Helper()
+
+	body := map[string][]int{
+		"instanceIds": instanceIDs,
+	}
+
+	resp := c.put(t, "/api/instances/order", body)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result []Instance
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
 // CreateInstance creates a new instance and returns its ID.
 func (c *Client) CreateInstance(t *testing.T, cfg InstanceConfig) int {
 	t.Helper()
@@ -392,6 +442,53 @@ func (c *Client) DeleteTorrents(t *testing.T, instanceID int, hashes []string, d
 	defer resp.Body.Close()
 
 	requireStatus(t, resp, http.StatusOK)
+}
+
+// ---- Torrent Details ----
+
+// GetTorrentProperties returns detailed properties for a specific torrent.
+func (c *Client) GetTorrentProperties(t *testing.T, instanceID int, hash string) TorrentProperties {
+	t.Helper()
+
+	url := fmt.Sprintf("/api/instances/%d/torrents/%s/properties", instanceID, hash)
+	resp := c.get(t, url)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result TorrentProperties
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// GetTorrentTrackers returns trackers for a specific torrent.
+func (c *Client) GetTorrentTrackers(t *testing.T, instanceID int, hash string) []Tracker {
+	t.Helper()
+
+	url := fmt.Sprintf("/api/instances/%d/torrents/%s/trackers", instanceID, hash)
+	resp := c.get(t, url)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result []Tracker
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// GetTorrentFiles returns the file list for a specific torrent.
+func (c *Client) GetTorrentFiles(t *testing.T, instanceID int, hash string) []TorrentFile {
+	t.Helper()
+
+	url := fmt.Sprintf("/api/instances/%d/torrents/%s/files", instanceID, hash)
+	resp := c.get(t, url)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result []TorrentFile
+	decodeJSON(t, resp.Body, &result)
+	return result
 }
 
 // ---- Bulk Actions ----

@@ -45,6 +45,7 @@
     "dl_rate_limit": "\u003cint\u003e",
     "free_space_on_disk": "\u003cint\u003e",
     "global_ratio": "\u003cstring\u003e",
+    "last_external_address_v4": "\u003cstring\u003e",
     "queued_io_jobs": "\u003cint\u003e",
     "queueing": "\u003cbool\u003e",
     "read_cache_hits": "\u003cstring\u003e",
