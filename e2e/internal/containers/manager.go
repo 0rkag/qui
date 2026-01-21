@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +36,12 @@ const (
 	maxRandomPort = 60000
 )
 
+// portMutex protects random port generation to avoid collisions in parallel tests
+var portMutex sync.Mutex
+
+// usedPorts tracks ports that have been allocated to avoid duplicates
+var usedPorts = make(map[int]bool)
+
 // TestEnv holds all containers for a test run.
 type TestEnv struct {
 	Network     *testcontainers.DockerNetwork
@@ -48,6 +55,158 @@ type TestEnv struct {
 
 	// qui credentials (set during setup)
 	quiClient *client.Client
+}
+
+// QBitInstance holds info about a single qBittorrent instance in a multi-instance setup.
+type QBitInstance struct {
+	ID        int                      // qui instance ID (assigned after registration)
+	Container testcontainers.Container // Docker container
+	URL       string                   // Internal URL for qui to connect
+	ExtURL    string                   // External URL for direct access
+	Password  string                   // WebUI password
+}
+
+// MultiInstanceEnv holds containers for multi-instance tests.
+type MultiInstanceEnv struct {
+	Network   *testcontainers.DockerNetwork
+	Qui       testcontainers.Container
+	QuiURL    string
+	Instances []*QBitInstance
+
+	quiClient *client.Client
+}
+
+// Client returns an authenticated client for qui's API.
+func (e *MultiInstanceEnv) Client() *client.Client {
+	return e.quiClient
+}
+
+// Teardown stops and removes all containers.
+func (e *MultiInstanceEnv) Teardown(ctx context.Context) {
+	if e.Qui != nil {
+		_ = e.Qui.Terminate(ctx)
+	}
+	for _, inst := range e.Instances {
+		if inst.Container != nil {
+			_ = inst.Container.Terminate(ctx)
+		}
+	}
+	if e.Network != nil {
+		_ = e.Network.Remove(ctx)
+	}
+}
+
+// SetupMultiInstance creates a test environment with multiple qBittorrent instances.
+func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *MultiInstanceEnv {
+	t.Helper()
+
+	env := &MultiInstanceEnv{
+		Instances: make([]*QBitInstance, instanceCount),
+	}
+
+	// Create shared network
+	net, err := network.New(ctx)
+	if err != nil {
+		t.Fatalf("failed to create network: %v", err)
+	}
+	env.Network = net
+
+	// Prepare qui Dockerfile
+	absPath, err := filepath.Abs(cfg.QuiSourcePath)
+	if err != nil {
+		t.Fatalf("failed to get absolute path: %v", err)
+	}
+	platform := "linux/" + runtime.GOARCH
+	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
+	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
+	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
+		t.Fatalf("failed to create e2e Dockerfile: %v", err)
+	}
+	defer os.Remove(e2eDockerfilePath)
+
+	// Start qui container first (can run in parallel with qBittorrent startup)
+	t.Logf("Starting %d qBittorrent instances + qui...", instanceCount)
+
+	quiReq := quiRequest(absPath, platform, net.Name, cfg.Timeout)
+	quiContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: quiReq,
+		Started:          true,
+	})
+	if err != nil {
+		t.Fatalf("failed to start qui container: %v", err)
+	}
+	env.Qui = quiContainer
+
+	quiPort, err := env.Qui.MappedPort(ctx, "7476")
+	if err != nil {
+		t.Fatalf("failed to get qui port: %v", err)
+	}
+	env.QuiURL = "http://localhost:" + quiPort.Port()
+
+	// Configure qui (create admin user)
+	env.quiClient, err = configureQuiShared(ctx, env.QuiURL, "admin", "adminadmin")
+	if err != nil {
+		t.Fatalf("failed to configure qui: %v", err)
+	}
+
+	// Start qBittorrent instances sequentially to avoid port binding races
+	// Each container must fully start before the next port is allocated
+	for i := range instanceCount {
+		inst := &QBitInstance{}
+		env.Instances[i] = inst
+
+		// Allocate ports for this instance
+		webUIPort := randomPortInRange(minRandomPort, maxRandomPort)
+		torrentPort := randomPortInRange(minRandomPort, maxRandomPort)
+		webUIPortStr := strconv.Itoa(webUIPort)
+
+		// Start the container
+		qbitReq := qbittorrentRequest(net.Name, cfg.Timeout, webUIPort, torrentPort)
+		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: qbitReq,
+			Started:          true,
+		})
+		if err != nil {
+			t.Fatalf("failed to start qbittorrent container %d: %v", i, err)
+		}
+		inst.Container = container
+
+		// Get external URL
+		qbitPort, err := inst.Container.MappedPort(ctx, nat.Port(webUIPortStr+"/tcp"))
+		if err != nil {
+			t.Fatalf("failed to get qbittorrent port for instance %d: %v", i, err)
+		}
+		inst.ExtURL = "http://localhost:" + qbitPort.Port()
+
+		// Extract password
+		inst.Password, err = extractQBitPasswordShared(ctx, inst.Container)
+		if err != nil {
+			t.Fatalf("failed to extract password for instance %d: %v", i, err)
+		}
+
+		// Configure qBittorrent settings
+		if err := configureQBittorrentShared(ctx, inst.ExtURL, inst.Password); err != nil {
+			t.Logf("Warning: failed to configure qBittorrent instance %d: %v", i, err)
+		}
+
+		// Get internal network IP
+		qbitIP, err := inst.Container.ContainerIP(ctx)
+		if err != nil {
+			t.Fatalf("failed to get qbittorrent IP for instance %d: %v", i, err)
+		}
+		inst.URL = fmt.Sprintf("http://%s:%s", qbitIP, webUIPortStr)
+
+		// Register instance with qui
+		inst.ID = env.quiClient.CreateInstance(t, client.InstanceConfig{
+			Name:     fmt.Sprintf("qbit-%d", i+1),
+			Host:     inst.URL,
+			Username: "admin",
+			Password: inst.Password,
+		})
+	}
+
+	t.Logf("Multi-instance environment ready: %d qBittorrent instances", instanceCount)
+	return env
 }
 
 // Client returns an authenticated client for qui's API.
@@ -257,7 +416,31 @@ func findAvailablePort() (int, error) {
 }
 
 // randomPortInRange returns a random port in the given range.
+// randomPortInRange returns a random unused port in the given range.
+// Thread-safe for parallel test execution.
+// isPortAvailable checks if a TCP port is available on the host
+func isPortAvailable(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	listener.Close()
+	return true
+}
+
 func randomPortInRange(min, max int) int {
+	portMutex.Lock()
+	defer portMutex.Unlock()
+
+	for attempts := 0; attempts < 1000; attempts++ {
+		port := min + rand.IntN(max-min+1)
+		if !usedPorts[port] && isPortAvailable(port) {
+			usedPorts[port] = true
+			return port
+		}
+	}
+	// Fallback: return a random port anyway (very unlikely to reach here)
 	return min + rand.IntN(max-min+1)
 }
 

@@ -1,0 +1,35 @@
+[
+  {
+    "connected": "\u003cbool\u003e",
+    "connectionStatus": "\u003cstring\u003e",
+    "fallbackToRegularMode": "\u003cbool\u003e",
+    "hardlinkBaseDir": "\u003cstring\u003e",
+    "hardlinkDirPreset": "\u003cstring\u003e",
+    "hasDecryptionError": "\u003cbool\u003e",
+    "hasLocalFilesystemAccess": "\u003cbool\u003e",
+    "host": "\u003cstring\u003e",
+    "id": "\u003cint\u003e",
+    "isActive": "\u003cbool\u003e",
+    "name": "\u003cstring\u003e",
+    "reannounceSettings": {
+      "aggressive": "\u003cbool\u003e",
+      "categories": [],
+      "enabled": "\u003cbool\u003e",
+      "excludeCategories": "\u003cbool\u003e",
+      "excludeTags": "\u003cbool\u003e",
+      "excludeTrackers": "\u003cbool\u003e",
+      "initialWaitSeconds": "\u003cint\u003e",
+      "maxAgeSeconds": "\u003cint\u003e",
+      "maxRetries": "\u003cint\u003e",
+      "monitorAll": "\u003cbool\u003e",
+      "reannounceIntervalSeconds": "\u003cint\u003e",
+      "tags": [],
+      "trackers": []
+    },
+    "sortOrder": "\u003cint\u003e",
+    "tlsSkipVerify": "\u003cbool\u003e",
+    "useHardlinks": "\u003cbool\u003e",
+    "useReflinks": "\u003cbool\u003e",
+    "username": "\u003cstring\u003e"
+  }
+]

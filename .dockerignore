@@ -1,0 +1,63 @@
+# e2e tests - changes here shouldn't trigger qui rebuild
+e2e/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+
+# Documentation
+docs/
+documentation/
+*.md
+!internal/**/*.md
+
+# Build artifacts
+bin/
+dist/
+tmp/
+.run/
+.dev/
+.cache/
+
+# Test artifacts
+test/
+*.test
+*.pprof
+
+# Database files
+*.sqlite
+*.db
+*.db-journal
+
+# Log files
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Config files (not needed in build)
+config.toml
+.env
+.mcp.json
+
+# Analysis and cache
+analyses/
+.gocache/
+.gomodcache/
+.golangci-cache/
+
+# Node modules in web/ will be rebuilt anyway
+# but we want fresh pnpm install inside container
+# so node_modules is already excluded implicitly
+
+# Misc
+backups/
+torrentfiles/
+tracker-icons/
+.device-id-*

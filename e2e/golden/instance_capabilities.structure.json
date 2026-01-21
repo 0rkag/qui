@@ -1,0 +1,16 @@
+{
+  "supportsFilePriority": "\u003cbool\u003e",
+  "supportsFreeSpacePathSource": "\u003cbool\u003e",
+  "supportsPathAutocomplete": "\u003cbool\u003e",
+  "supportsRenameFile": "\u003cbool\u003e",
+  "supportsRenameFolder": "\u003cbool\u003e",
+  "supportsRenameTorrent": "\u003cbool\u003e",
+  "supportsSetTags": "\u003cbool\u003e",
+  "supportsSubcategories": "\u003cbool\u003e",
+  "supportsTorrentCreation": "\u003cbool\u003e",
+  "supportsTorrentExport": "\u003cbool\u003e",
+  "supportsTorrentTmpPath": "\u003cbool\u003e",
+  "supportsTrackerEditing": "\u003cbool\u003e",
+  "supportsTrackerHealth": "\u003cbool\u003e",
+  "webAPIVersion": "\u003cstring\u003e"
+}
