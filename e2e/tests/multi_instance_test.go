@@ -24,8 +24,9 @@ func TestMultiInstanceDataIsolation(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.SetupMultiInstance(ctx, t, containers.DefaultConfig(), 2)
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 2)
 	t.Cleanup(func() { env.Teardown(ctx) })
+	env.RegisterInstances(t)
 
 	c := env.Client()
 	instA := env.Instances[0]
@@ -130,8 +131,9 @@ func TestMultiInstanceConcurrentOps(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.SetupMultiInstance(ctx, t, containers.DefaultConfig(), 2)
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 2)
 	t.Cleanup(func() { env.Teardown(ctx) })
+	env.RegisterInstances(t)
 
 	c := env.Client()
 	instA := env.Instances[0]
@@ -250,8 +252,9 @@ func TestMultiInstanceLifecycle(t *testing.T) {
 
 	ctx := context.Background()
 	// Start with just 1 instance
-	env := containers.SetupMultiInstance(ctx, t, containers.DefaultConfig(), 1)
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
+	env.RegisterInstances(t)
 
 	c := env.Client()
 	instA := env.Instances[0]
@@ -316,8 +319,9 @@ func TestMultiInstanceCrossInstance(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.SetupMultiInstance(ctx, t, containers.DefaultConfig(), 2)
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 2)
 	t.Cleanup(func() { env.Teardown(ctx) })
+	env.RegisterInstances(t)
 
 	c := env.Client()
 	instA := env.Instances[0]

@@ -46,8 +46,9 @@ func TestScaleManyInstances(t *testing.T) {
 	cfg := containers.DefaultConfig()
 	cfg.Timeout = 5 * time.Minute // Longer timeout for many containers
 
-	env := containers.SetupMultiInstance(ctx, t, cfg, instanceCount)
+	env := containers.Setup(ctx, t, cfg, instanceCount)
 	t.Cleanup(func() { env.Teardown(ctx) })
+	env.RegisterInstances(t)
 
 	c := env.Client()
 

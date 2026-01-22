@@ -22,17 +22,18 @@ func TestTorrentCRUD(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	// Create an instance to work with
 	instanceID := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "torrent-test",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, instanceID) })
 
@@ -133,16 +134,17 @@ func TestTorrentBulkActions(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	instanceID := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "bulk-test",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, instanceID) })
 
@@ -203,16 +205,17 @@ func TestTorrentDetails(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	instanceID := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "details-test",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, instanceID) })
 

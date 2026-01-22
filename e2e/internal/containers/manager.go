@@ -75,41 +75,7 @@ var usedPorts = make(map[int]bool)
 var quiImageName string
 var quiImageMutex sync.RWMutex
 
-// containerSem limits concurrent container startups to avoid overwhelming Docker
-var containerSem chan struct{}
-var containerSemOnce sync.Once
-
-// getContainerSem returns a semaphore that limits concurrent container startups.
-// Default is 4 concurrent startups, configurable via QUI_E2E_MAX_PARALLEL env var.
-func getContainerSem() chan struct{} {
-	containerSemOnce.Do(func() {
-		maxParallel := 4
-		if env := os.Getenv("QUI_E2E_MAX_PARALLEL"); env != "" {
-			if n, err := strconv.Atoi(env); err == nil && n > 0 {
-				maxParallel = n
-			}
-		}
-		containerSem = make(chan struct{}, maxParallel)
-	})
-	return containerSem
-}
-
-// TestEnv holds all containers for a test run.
-type TestEnv struct {
-	Network     *testcontainers.DockerNetwork
-	Qui         testcontainers.Container // qui runs in Docker container
-	QBittorrent testcontainers.Container
-
-	QuiURL       string // External URL for test client (http://localhost:<port>)
-	QBitURL      string // URL for qui to connect to qBittorrent (internal network)
-	QBitExtURL   string // External URL for direct access if needed
-	QBitPassword string // qBittorrent WebUI password (extracted from logs)
-
-	// qui credentials (set during setup)
-	quiClient *client.Client
-}
-
-// QBitInstance holds info about a single qBittorrent instance in a multi-instance setup.
+// QBitInstance holds info about a single qBittorrent instance.
 type QBitInstance struct {
 	ID        int                      // qui instance ID (assigned after registration)
 	Container testcontainers.Container // Docker container
@@ -118,8 +84,8 @@ type QBitInstance struct {
 	Password  string                   // WebUI password
 }
 
-// MultiInstanceEnv holds containers for multi-instance tests.
-type MultiInstanceEnv struct {
+// Env holds all containers for a test run.
+type Env struct {
 	Network   *testcontainers.DockerNetwork
 	Qui       testcontainers.Container
 	QuiURL    string
@@ -129,12 +95,12 @@ type MultiInstanceEnv struct {
 }
 
 // Client returns an authenticated client for qui's API.
-func (e *MultiInstanceEnv) Client() *client.Client {
+func (e *Env) Client() *client.Client {
 	return e.quiClient
 }
 
 // Teardown stops and removes all containers.
-func (e *MultiInstanceEnv) Teardown(ctx context.Context) {
+func (e *Env) Teardown(ctx context.Context) {
 	if e.Qui != nil {
 		_ = e.Qui.Terminate(ctx)
 	}
@@ -145,6 +111,32 @@ func (e *MultiInstanceEnv) Teardown(ctx context.Context) {
 	}
 	if e.Network != nil {
 		_ = e.Network.Remove(ctx)
+	}
+}
+
+// RegisterInstances registers all qBittorrent instances with qui.
+// Call this after Setup if you need instances to be registered.
+func (e *Env) RegisterInstances(t *testing.T) {
+	t.Helper()
+	for i, inst := range e.Instances {
+		inst.ID = e.quiClient.CreateInstance(t, client.InstanceConfig{
+			Name:     fmt.Sprintf("qbit-%d", i+1),
+			Host:     inst.URL,
+			Username: "admin",
+			Password: inst.Password,
+		})
+	}
+}
+
+// Config for test environment.
+type Config struct {
+	Timeout time.Duration // Container startup timeout
+}
+
+// DefaultConfig returns sensible defaults for local development.
+func DefaultConfig() Config {
+	return Config{
+		Timeout: 3 * time.Minute,
 	}
 }
 
@@ -215,11 +207,12 @@ func Warmup(ctx context.Context, quiSourcePath string) error {
 	return nil
 }
 
-// SetupMultiInstance creates a test environment with multiple qBittorrent instances.
-func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *MultiInstanceEnv {
+// Setup creates a test environment with qui and N qBittorrent instances.
+// Instances are NOT auto-registered with qui - call env.RegisterInstances(t) if needed.
+func Setup(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *Env {
 	t.Helper()
 
-	env := &MultiInstanceEnv{
+	env := &Env{
 		Instances: make([]*QBitInstance, instanceCount),
 	}
 
@@ -230,55 +223,87 @@ func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceC
 	}
 	env.Network = net
 
-	// Start qui container first (can run in parallel with qBittorrent startup)
-	t.Logf("Starting %d qBittorrent instances + qui...", instanceCount)
+	t.Logf("Starting %d qBittorrent instance(s) + qui...", instanceCount)
 
-	quiReq := quiRequest(net.Name, cfg.Timeout)
-	quiContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: quiReq,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("failed to start qui container: %v", err)
+	// Pre-allocate ports for all instances (thread-safe)
+	type instancePorts struct {
+		webUIPort   int
+		torrentPort int
 	}
-	env.Qui = quiContainer
+	ports := make([]instancePorts, instanceCount)
+	for i := range instanceCount {
+		ports[i] = instancePorts{
+			webUIPort:   randomPortInRange(minRandomPort, maxRandomPort),
+			torrentPort: randomPortInRange(minRandomPort, maxRandomPort),
+		}
+	}
 
+	// Start all containers in parallel with rate limiting using worker pool
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)         // Limit concurrent container startups
+	errors := make([]error, instanceCount+1) // qui + N qbittorrent
+
+	// Start qui container
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sem <- struct{}{}
+		defer func() { <-sem }()
+
+		var err error
+		env.Qui, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+			ContainerRequest: quiRequest(net.Name, cfg.Timeout),
+			Started:          true,
+		})
+		errors[0] = err
+	}()
+
+	// Start qBittorrent instances
+	for i := range instanceCount {
+		env.Instances[i] = &QBitInstance{}
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+				ContainerRequest: qbittorrentRequest(net.Name, cfg.Timeout, ports[idx].webUIPort, ports[idx].torrentPort),
+				Started:          true,
+			})
+			env.Instances[idx].Container = container
+			env.Instances[idx].ExtURL = "http://localhost:" + strconv.Itoa(ports[idx].webUIPort)
+			errors[idx+1] = err
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Check for startup errors
+	for i, err := range errors {
+		if err != nil {
+			if i == 0 {
+				t.Fatalf("failed to start qui container: %v", err)
+			}
+			t.Fatalf("failed to start qbittorrent container %d: %v", i-1, err)
+		}
+	}
+
+	// Configure qui
 	quiPort, err := getMappedPortWithRetry(ctx, env.Qui, "7476", 10)
 	if err != nil {
 		t.Fatalf("failed to get qui port: %v", err)
 	}
 	env.QuiURL = "http://localhost:" + quiPort.Port()
 
-	// Configure qui (create admin user)
 	env.quiClient, err = configureQuiShared(ctx, env.QuiURL, "admin", "adminadmin")
 	if err != nil {
 		t.Fatalf("failed to configure qui: %v", err)
 	}
 
-	// Start qBittorrent instances sequentially to avoid port binding races
-	// Each container must fully start before the next port is allocated
+	// Configure qBittorrent instances (but don't register with qui)
 	for i := range instanceCount {
-		inst := &QBitInstance{}
-		env.Instances[i] = inst
-
-		// Allocate ports for this instance
-		webUIPort := randomPortInRange(minRandomPort, maxRandomPort)
-		torrentPort := randomPortInRange(minRandomPort, maxRandomPort)
-		webUIPortStr := strconv.Itoa(webUIPort)
-
-		// Start the container
-		qbitReq := qbittorrentRequest(net.Name, cfg.Timeout, webUIPort, torrentPort)
-		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: qbitReq,
-			Started:          true,
-		})
-		if err != nil {
-			t.Fatalf("failed to start qbittorrent container %d: %v", i, err)
-		}
-		inst.Container = container
-
-		// Get external URL - we use fixed port binding, so we know the host port
-		inst.ExtURL = "http://localhost:" + webUIPortStr
+		inst := env.Instances[i]
 
 		// Extract password
 		inst.Password, err = extractQBitPasswordShared(ctx, inst.Container)
@@ -296,151 +321,11 @@ func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceC
 		if err != nil {
 			t.Fatalf("failed to get qbittorrent IP for instance %d: %v", i, err)
 		}
-		inst.URL = fmt.Sprintf("http://%s:%s", qbitIP, webUIPortStr)
-
-		// Register instance with qui
-		inst.ID = env.quiClient.CreateInstance(t, client.InstanceConfig{
-			Name:     fmt.Sprintf("qbit-%d", i+1),
-			Host:     inst.URL,
-			Username: "admin",
-			Password: inst.Password,
-		})
+		inst.URL = fmt.Sprintf("http://%s:%d", qbitIP, ports[i].webUIPort)
 	}
 
-	t.Logf("Multi-instance environment ready: %d qBittorrent instances", instanceCount)
+	t.Logf("Environment ready: %d qBittorrent instance(s)", instanceCount)
 	return env
-}
-
-// Client returns an authenticated client for qui's API.
-func (e *TestEnv) Client() *client.Client {
-	return e.quiClient
-}
-
-// Config for test environment.
-type Config struct {
-	Timeout time.Duration // Container startup timeout
-}
-
-// DefaultConfig returns sensible defaults for local development.
-func DefaultConfig() Config {
-	return Config{
-		Timeout: 3 * time.Minute,
-	}
-}
-
-// Setup creates and starts all containers (for individual test use).
-func Setup(ctx context.Context, t *testing.T, cfg Config) *TestEnv {
-	t.Helper()
-
-	env, err := SetupShared(ctx, cfg)
-	if err != nil {
-		t.Fatalf("failed to setup test environment: %v", err)
-	}
-
-	t.Logf("Created network: %s", env.Network.Name)
-	t.Logf("qBittorrent ready at %s (password: %s)", env.QBitExtURL, env.QBitPassword)
-	t.Logf("qui ready at %s", env.QuiURL)
-	t.Logf("qui configured: admin user created")
-
-	return env
-}
-
-// SetupShared creates and starts all containers without requiring testing.T.
-// Used by TestMain for shared environment setup.
-func SetupShared(ctx context.Context, cfg Config) (*TestEnv, error) {
-	env := &TestEnv{}
-
-	// Acquire semaphore to limit concurrent container startups
-	sem := getContainerSem()
-	sem <- struct{}{}
-	defer func() { <-sem }()
-
-	// Log which qBittorrent image we're using (useful for version matrix testing)
-	fmt.Printf("Using qBittorrent image: %s\n", getQBitImage())
-
-	// Create shared network
-	net, err := network.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create network: %w", err)
-	}
-	env.Network = net
-
-	// Generate random ports for this test instance to allow parallel execution
-	webUIPort := randomPortInRange(minRandomPort, maxRandomPort)
-	torrentPort := randomPortInRange(minRandomPort, maxRandomPort)
-
-	// Build container requests
-	qbitReq := qbittorrentRequest(net.Name, cfg.Timeout, webUIPort, torrentPort)
-	quiReq := quiRequest(net.Name, cfg.Timeout)
-
-	// Start containers sequentially to avoid overwhelming Docker
-	qbitContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: qbitReq,
-		Started:          true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to start qbittorrent container: %w", err)
-	}
-	env.QBittorrent = qbitContainer
-
-	quiContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: quiReq,
-		Started:          true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to start qui container: %w", err)
-	}
-	env.Qui = quiContainer
-
-	// Setup qBittorrent (extract password, configure settings)
-	// We use fixed port binding, so we already know the host port
-	webUIPortStr := strconv.Itoa(webUIPort)
-	env.QBitExtURL = "http://localhost:" + webUIPortStr
-
-	env.QBitPassword, err = extractQBitPasswordShared(ctx, env.QBittorrent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract qbittorrent password: %w", err)
-	}
-
-	if err := configureQBittorrentShared(ctx, env.QBitExtURL, env.QBitPassword); err != nil {
-		// Non-fatal warning - tests may be flaky
-		fmt.Printf("Warning: failed to configure qBittorrent settings: %v\n", err)
-	}
-
-	// Get qBittorrent internal network IP for qui to connect to
-	qbitIP, err := env.QBittorrent.ContainerIP(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get qbittorrent IP: %w", err)
-	}
-	env.QBitURL = fmt.Sprintf("http://%s:%s", qbitIP, webUIPortStr)
-
-	// Setup qui URL
-	quiPort, err := getMappedPortWithRetry(ctx, env.Qui, "7476", 10)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get qui port: %w", err)
-	}
-	env.QuiURL = "http://localhost:" + quiPort.Port()
-
-	// Configure qui (create admin user)
-	env.quiClient, err = configureQuiShared(ctx, env.QuiURL, "admin", "adminadmin")
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure qui: %w", err)
-	}
-
-	return env, nil
-}
-
-// Teardown stops and removes all containers.
-func (e *TestEnv) Teardown(ctx context.Context) {
-	if e.Qui != nil {
-		_ = e.Qui.Terminate(ctx)
-	}
-	if e.QBittorrent != nil {
-		_ = e.QBittorrent.Terminate(ctx)
-	}
-	if e.Network != nil {
-		_ = e.Network.Remove(ctx)
-	}
 }
 
 // quiRequest returns a container request for qui.

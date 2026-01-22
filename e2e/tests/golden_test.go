@@ -24,17 +24,18 @@ func TestGoldenResponses(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	// Create a test instance for API calls
 	instanceID := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "golden-test",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, instanceID) })
 
@@ -93,16 +94,17 @@ func TestGoldenNormalization(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	instanceID := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "norm-test",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, instanceID) })
 

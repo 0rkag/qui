@@ -19,17 +19,18 @@ func TestInstanceCRUD(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	t.Run("create qbittorrent instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "test-qbt",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		require.Positive(t, id)
 		t.Cleanup(func() { c.DeleteInstance(t, id) })
@@ -37,7 +38,7 @@ func TestInstanceCRUD(t *testing.T) {
 		// Verify it exists
 		instance := c.GetInstance(t, id)
 		assert.Equal(t, "test-qbt", instance.Name)
-		assert.Equal(t, env.QBitURL, instance.Host)
+		assert.Equal(t, qbit.URL, instance.Host)
 	})
 
 	// Note: qui creates instances even with bad credentials - connection
@@ -55,17 +56,17 @@ func TestInstanceCRUD(t *testing.T) {
 		// Create two instances
 		id1 := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "instance-1",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		t.Cleanup(func() { c.DeleteInstance(t, id1) })
 
 		id2 := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "instance-2",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		t.Cleanup(func() { c.DeleteInstance(t, id2) })
 
@@ -83,17 +84,17 @@ func TestInstanceCRUD(t *testing.T) {
 	t.Run("update instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "to-update",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		t.Cleanup(func() { c.DeleteInstance(t, id) })
 
 		c.UpdateInstance(t, id, client.InstanceConfig{
 			Name:     "updated-name",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 
 		instance := c.GetInstance(t, id)
@@ -103,9 +104,9 @@ func TestInstanceCRUD(t *testing.T) {
 	t.Run("delete instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "to-delete",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 
 		c.DeleteInstance(t, id)
@@ -122,16 +123,17 @@ func TestInstanceCapabilities(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	id := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "caps-test",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, id) })
 
@@ -162,17 +164,18 @@ func TestInstanceConnection(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	t.Run("test connection succeeds for healthy instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "conn-test",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		t.Cleanup(func() { c.DeleteInstance(t, id) })
 
@@ -196,9 +199,9 @@ func TestInstanceConnection(t *testing.T) {
 	t.Run("test connection fails for disabled instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "disabled-test",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		t.Cleanup(func() { c.DeleteInstance(t, id) })
 
@@ -226,17 +229,18 @@ func TestInstanceStatus(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	t.Run("disable and re-enable instance", func(t *testing.T) {
 		id := c.CreateInstance(t, client.InstanceConfig{
 			Name:     "status-test",
-			Host:     env.QBitURL,
+			Host:     qbit.URL,
 			Username: "admin",
-			Password: env.QBitPassword,
+			Password: qbit.Password,
 		})
 		t.Cleanup(func() { c.DeleteInstance(t, id) })
 
@@ -279,33 +283,34 @@ func TestInstanceOrder(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	env := containers.Setup(ctx, t, containers.DefaultConfig())
+	env := containers.Setup(ctx, t, containers.DefaultConfig(), 1)
 	t.Cleanup(func() { env.Teardown(ctx) })
 
 	c := env.Client()
+	qbit := env.Instances[0]
 
 	// Create three instances
 	id1 := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "order-1",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, id1) })
 
 	id2 := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "order-2",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, id2) })
 
 	id3 := c.CreateInstance(t, client.InstanceConfig{
 		Name:     "order-3",
-		Host:     env.QBitURL,
+		Host:     qbit.URL,
 		Username: "admin",
-		Password: env.QBitPassword,
+		Password: qbit.Password,
 	})
 	t.Cleanup(func() { c.DeleteInstance(t, id3) })
 
