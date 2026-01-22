@@ -143,3 +143,59 @@ type TorrentFile struct {
 	PieceRange   []int   `json:"piece_range"`
 	Availability float64 `json:"availability"`
 }
+
+// ---- Automations ----
+
+// Automation represents an automation rule.
+type Automation struct {
+	ID              int                    `json:"id"`
+	InstanceID      int                    `json:"instanceId"`
+	Name            string                 `json:"name"`
+	TrackerPattern  string                 `json:"trackerPattern"`
+	TrackerDomains  []string               `json:"trackerDomains,omitempty"`
+	Enabled         bool                   `json:"enabled"`
+	SortOrder       int                    `json:"sortOrder"`
+	IntervalSeconds *int                   `json:"intervalSeconds,omitempty"`
+	Conditions      map[string]interface{} `json:"conditions"`
+	CreatedAt       string                 `json:"createdAt,omitempty"`
+	UpdatedAt       string                 `json:"updatedAt,omitempty"`
+}
+
+// AutomationPayload is the request body for creating/updating automations.
+type AutomationPayload struct {
+	Name            string                 `json:"name"`
+	TrackerPattern  string                 `json:"trackerPattern,omitempty"`
+	TrackerDomains  []string               `json:"trackerDomains,omitempty"`
+	Enabled         *bool                  `json:"enabled,omitempty"`
+	SortOrder       *int                   `json:"sortOrder,omitempty"`
+	IntervalSeconds *int                   `json:"intervalSeconds,omitempty"`
+	Conditions      map[string]interface{} `json:"conditions"`
+}
+
+// AutomationActivity represents a logged automation action.
+type AutomationActivity struct {
+	ID             int    `json:"id"`
+	InstanceID     int    `json:"instanceId"`
+	AutomationID   int    `json:"automationId"`
+	AutomationName string `json:"automationName"`
+	TorrentHash    string `json:"torrentHash"`
+	TorrentName    string `json:"torrentName"`
+	Action         string `json:"action"`
+	Details        string `json:"details,omitempty"`
+	CreatedAt      string `json:"createdAt"`
+}
+
+// RegexValidationResult is the response from ValidateRegex.
+type RegexValidationResult struct {
+	Valid  bool                   `json:"valid"`
+	Errors []RegexValidationError `json:"errors"`
+}
+
+// RegexValidationError represents a regex validation error.
+type RegexValidationError struct {
+	Path     string `json:"path"`
+	Message  string `json:"message"`
+	Pattern  string `json:"pattern"`
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+}
