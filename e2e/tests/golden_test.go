@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/autobrr/qui/e2e/internal/assert/golden"
@@ -12,9 +13,13 @@ import (
 
 // TestGoldenResponses snapshots API response structures to catch breaking changes.
 // Run with -update-golden to regenerate golden files.
+// Skipped when testing non-default qBittorrent versions as API structures differ.
 func TestGoldenResponses(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test")
+	}
+	if img := os.Getenv("QUI_E2E_QBIT_IMAGE"); img != "" {
+		t.Skip("skipping golden tests for non-default qBittorrent version")
 	}
 	t.Parallel()
 
@@ -77,9 +82,13 @@ func TestGoldenResponses(t *testing.T) {
 
 // TestGoldenNormalization verifies that normalization works correctly.
 // These tests use Assert (with value normalization) rather than AssertStructure.
+// Skipped when testing non-default qBittorrent versions as API structures differ.
 func TestGoldenNormalization(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test")
+	}
+	if img := os.Getenv("QUI_E2E_QBIT_IMAGE"); img != "" {
+		t.Skip("skipping golden tests for non-default qBittorrent version")
 	}
 	t.Parallel()
 

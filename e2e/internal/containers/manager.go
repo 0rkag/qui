@@ -40,17 +40,13 @@ const (
 const defaultQBitImage = "linuxserver/qbittorrent:5.1.4"
 
 // Supported qBittorrent images for version matrix testing.
-// Run with QUI_E2E_QBIT_IMAGE=<image> to test different versions.
+// Run with QUI_E2E_QBIT_IMAGE=<short-name> to test different versions.
+// Test matrix: 5.1.4 (default), 5.1.4-libtorrentv1, 5.0.2, 4.6.7
 var supportedQBitImages = map[string]string{
-	// 4.5.x series
-	"4.5.5":              "linuxserver/qbittorrent:4.5.5",
-	"4.5.5-libtorrentv2": "linuxserver/qbittorrent:4.5.5-libtorrentv2",
-	// 4.6.x series
-	"4.6.7":              "linuxserver/qbittorrent:4.6.7",
-	"4.6.7-libtorrentv2": "linuxserver/qbittorrent:4.6.7-libtorrentv2",
-	// 5.0.x series (v2 is default in 5.x)
-	"5.0.2":              "linuxserver/qbittorrent:5.0.2",
-	"5.0.2-libtorrentv1": "linuxserver/qbittorrent:5.0.2-libtorrentv1",
+	// 4.6.x series (last major 4.x with nested categories)
+	"4.6.7": "linuxserver/qbittorrent:4.6.7",
+	// 5.0.x series (first 5.x, torrent creation feature)
+	"5.0.2": "linuxserver/qbittorrent:5.0.2",
 	// 5.1.x series (latest)
 	"5.1.4":              "linuxserver/qbittorrent:5.1.4",
 	"5.1.4-libtorrentv1": "linuxserver/qbittorrent:5.1.4-libtorrentv1",
@@ -128,6 +124,59 @@ func (e *MultiInstanceEnv) Teardown(ctx context.Context) {
 	if e.Network != nil {
 		_ = e.Network.Remove(ctx)
 	}
+}
+
+// Warmup pre-builds the qui Docker image and pulls the qBittorrent image
+// to avoid parallel build/pull races. Call this from TestMain before running parallel tests.
+func Warmup(ctx context.Context, quiSourcePath string) error {
+	qbitImage := getQBitImage()
+	fmt.Printf("Warming up: building qui image and pulling %s...\n", qbitImage)
+
+	absPath, err := filepath.Abs(quiSourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	platform := "linux/" + runtime.GOARCH
+	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
+	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
+
+	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
+		return fmt.Errorf("failed to create e2e Dockerfile: %w", err)
+	}
+	defer os.Remove(e2eDockerfilePath)
+
+	// Create a temporary network for the warmup containers
+	net, err := network.New(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create network: %w", err)
+	}
+	defer net.Remove(ctx)
+
+	// Build qui image and pull qBittorrent image in parallel
+	quiReq := quiRequest(absPath, platform, net.Name, 3*time.Minute)
+	qbitReq := testcontainers.ContainerRequest{
+		Image:      qbitImage,
+		WaitingFor: wait.ForLog("[ls.io-init] done.").WithStartupTimeout(3 * time.Minute),
+	}
+
+	containers, err := testcontainers.ParallelContainers(ctx, []testcontainers.GenericContainerRequest{
+		{ContainerRequest: quiReq, Started: true},
+		{ContainerRequest: qbitReq, Started: true},
+	}, testcontainers.ParallelContainersOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to warmup containers: %w", err)
+	}
+
+	// Terminate both - we just needed to build/pull the images
+	for _, c := range containers {
+		if err := c.Terminate(ctx); err != nil {
+			return fmt.Errorf("failed to terminate warmup container: %w", err)
+		}
+	}
+
+	fmt.Println("Warmup complete: images ready")
+	return nil
 }
 
 // SetupMultiInstance creates a test environment with multiple qBittorrent instances.
