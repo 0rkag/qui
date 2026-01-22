@@ -4,8 +4,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -385,8 +383,16 @@ func extractHashFromMagnet(magnet string) string {
 }
 
 // AddTorrentFromFile adds a torrent from a .torrent file path and returns the hash.
+// The hash is discovered by listing torrents before and after adding.
 func (c *Client) AddTorrentFromFile(t *testing.T, instanceID int, filePath string, opts AddTorrentOptions) string {
 	t.Helper()
+
+	// Get existing torrent hashes before adding
+	existingHashes := make(map[string]bool)
+	before := c.ListTorrents(t, instanceID, ListOptions{})
+	for _, tor := range before.Torrents {
+		existingHashes[tor.Hash] = true
+	}
 
 	// Read torrent file
 	torrentData, err := os.ReadFile(filePath)
@@ -396,8 +402,8 @@ func (c *Client) AddTorrentFromFile(t *testing.T, instanceID int, filePath strin
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	// Add torrent file
-	part, err := writer.CreateFormFile("torrents", filepath.Base(filePath))
+	// Add torrent file (API expects field name "torrent")
+	part, err := writer.CreateFormFile("torrent", filepath.Base(filePath))
 	require(t, err)
 	_, err = part.Write(torrentData)
 	require(t, err)
@@ -439,55 +445,28 @@ func (c *Client) AddTorrentFromFile(t *testing.T, instanceID int, filePath strin
 		t.Fatalf("torrent not added from file %s: %s", filePath, result.Message)
 	}
 
-	// Extract hash from torrent file (parse bencoded info hash)
-	hash := extractHashFromTorrentFile(t, torrentData)
-	return hash
-}
-
-// extractHashFromTorrentFile extracts the info hash from torrent file data.
-// This is a simplified implementation that finds the info dict and computes SHA1.
-func extractHashFromTorrentFile(t *testing.T, data []byte) string {
-	t.Helper()
-
-	// Find "4:info" in the bencoded data
-	infoKey := []byte("4:infod")
-	idx := bytes.Index(data, infoKey)
-	if idx == -1 {
-		// Try alternate format
-		infoKey = []byte("4:info")
-		idx = bytes.Index(data, infoKey)
-		if idx == -1 {
-			t.Fatal("could not find info dict in torrent file")
-		}
-	}
-
-	// The info dict starts after "4:info"
-	infoStart := idx + 6 // len("4:info")
-
-	// Find the end of the info dict by counting nested dicts/lists
-	depth := 0
-	infoEnd := infoStart
-	for i := infoStart; i < len(data); i++ {
-		switch data[i] {
-		case 'd', 'l':
-			depth++
-		case 'e':
-			depth--
-			if depth == 0 {
-				infoEnd = i + 1
-				goto done
+	// Find the newly added torrent by comparing before/after
+	// Poll a few times in case qBittorrent hasn't synced yet
+	var newHash string
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		after := c.ListTorrents(t, instanceID, ListOptions{})
+		for _, tor := range after.Torrents {
+			if !existingHashes[tor.Hash] {
+				newHash = tor.Hash
+				break
 			}
 		}
-	}
-done:
-	if infoEnd <= infoStart {
-		t.Fatal("could not parse info dict boundaries")
+		if newHash != "" {
+			break
+		}
 	}
 
-	// Compute SHA1 of info dict
-	infoDict := data[infoStart:infoEnd]
-	hash := sha1.Sum(infoDict)
-	return strings.ToLower(hex.EncodeToString(hash[:]))
+	if newHash == "" {
+		t.Fatalf("could not find newly added torrent from file %s", filePath)
+	}
+
+	return newHash
 }
 
 // WaitForCondition polls a torrent until the condition returns true or timeout.

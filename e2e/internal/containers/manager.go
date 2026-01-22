@@ -434,11 +434,16 @@ func qbittorrentRequest(networkName string, timeout time.Duration, webUIPort, to
 			networkName: {"qbittorrent"},
 		},
 		// Use HostConfigModifier to bind container ports to specific host ports
+		// and add tmpfs mount for downloads directory
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.PortBindings = nat.PortMap{
 				webUIContainerPort: []nat.PortBinding{{HostIP: "", HostPort: webUIPortStr}},
 				torrentTCPPort:     []nat.PortBinding{{HostIP: "", HostPort: torrentPortStr}},
 				torrentUDPPort:     []nat.PortBinding{{HostIP: "", HostPort: torrentPortStr}},
+			}
+			// Add tmpfs mount for downloads directory to avoid permission issues
+			hc.Tmpfs = map[string]string{
+				"/downloads": "rw,size=1g",
 			}
 		},
 		// Wait for linuxserver init to complete - works across all versions
