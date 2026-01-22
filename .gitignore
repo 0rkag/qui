@@ -71,3 +71,6 @@ backups/*
 torrentfiles/*
 analyses/*
 .envrc
+
+# Git worktrees
+.worktrees/
