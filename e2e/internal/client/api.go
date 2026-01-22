@@ -4,12 +4,16 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -378,6 +382,145 @@ func extractHashFromMagnet(magnet string) string {
 		end++
 	}
 	return strings.ToLower(magnet[start:end])
+}
+
+// AddTorrentFromFile adds a torrent from a .torrent file path and returns the hash.
+func (c *Client) AddTorrentFromFile(t *testing.T, instanceID int, filePath string, opts AddTorrentOptions) string {
+	t.Helper()
+
+	// Read torrent file
+	torrentData, err := os.ReadFile(filePath)
+	require(t, err)
+
+	// Build multipart form
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	// Add torrent file
+	part, err := writer.CreateFormFile("torrents", filepath.Base(filePath))
+	require(t, err)
+	_, err = part.Write(torrentData)
+	require(t, err)
+
+	// Add options
+	if opts.SavePath != "" {
+		require(t, writer.WriteField("savepath", opts.SavePath))
+	}
+	if opts.Category != "" {
+		require(t, writer.WriteField("category", opts.Category))
+	}
+	if opts.Paused {
+		require(t, writer.WriteField("paused", "true"))
+	}
+	for _, tag := range opts.Tags {
+		require(t, writer.WriteField("tags", tag))
+	}
+
+	require(t, writer.Close())
+
+	url := fmt.Sprintf("/api/instances/%d/torrents", instanceID)
+	req := c.newRequest(t, "POST", url, &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp := c.do(t, req)
+	defer resp.Body.Close()
+
+	// API returns 201 Created for successful add
+	requireStatus(t, resp, http.StatusCreated)
+
+	var result struct {
+		Added   int    `json:"added"`
+		Failed  int    `json:"failed"`
+		Message string `json:"message"`
+	}
+	decodeJSON(t, resp.Body, &result)
+
+	if result.Added == 0 {
+		t.Fatalf("torrent not added from file %s: %s", filePath, result.Message)
+	}
+
+	// Extract hash from torrent file (parse bencoded info hash)
+	hash := extractHashFromTorrentFile(t, torrentData)
+	return hash
+}
+
+// extractHashFromTorrentFile extracts the info hash from torrent file data.
+// This is a simplified implementation that finds the info dict and computes SHA1.
+func extractHashFromTorrentFile(t *testing.T, data []byte) string {
+	t.Helper()
+
+	// Find "4:info" in the bencoded data
+	infoKey := []byte("4:infod")
+	idx := bytes.Index(data, infoKey)
+	if idx == -1 {
+		// Try alternate format
+		infoKey = []byte("4:info")
+		idx = bytes.Index(data, infoKey)
+		if idx == -1 {
+			t.Fatal("could not find info dict in torrent file")
+		}
+	}
+
+	// The info dict starts after "4:info"
+	infoStart := idx + 6 // len("4:info")
+
+	// Find the end of the info dict by counting nested dicts/lists
+	depth := 0
+	infoEnd := infoStart
+	for i := infoStart; i < len(data); i++ {
+		switch data[i] {
+		case 'd', 'l':
+			depth++
+		case 'e':
+			depth--
+			if depth == 0 {
+				infoEnd = i + 1
+				goto done
+			}
+		}
+	}
+done:
+	if infoEnd <= infoStart {
+		t.Fatal("could not parse info dict boundaries")
+	}
+
+	// Compute SHA1 of info dict
+	infoDict := data[infoStart:infoEnd]
+	hash := sha1.Sum(infoDict)
+	return strings.ToLower(hex.EncodeToString(hash[:]))
+}
+
+// WaitForCondition polls a torrent until the condition returns true or timeout.
+// Returns the final torrent state when condition is met.
+func (c *Client) WaitForCondition(t *testing.T, instanceID int, hash string, timeout time.Duration, condition func(Torrent) bool) Torrent {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	pollInterval := 500 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		torrents := c.ListTorrents(t, instanceID, ListOptions{Hashes: []string{hash}})
+		if len(torrents.Torrents) == 0 {
+			t.Fatalf("torrent %s not found while waiting for condition", hash)
+		}
+
+		torrent := torrents.Torrents[0]
+		if condition(torrent) {
+			return torrent
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	// Final check
+	torrents := c.ListTorrents(t, instanceID, ListOptions{Hashes: []string{hash}})
+	if len(torrents.Torrents) == 0 {
+		t.Fatalf("torrent %s not found at timeout", hash)
+	}
+
+	t.Fatalf("condition not met within %v for torrent %s (final state: %s, progress: %.2f)",
+		timeout, hash, torrents.Torrents[0].State, torrents.Torrents[0].Progress)
+	return Torrent{} // unreachable
 }
 
 // ListTorrents returns torrents for an instance with optional filters.
