@@ -5,6 +5,7 @@
   "supportsRenameFile": true,
   "supportsRenameFolder": true,
   "supportsRenameTorrent": true,
+  "supportsSetRSSFeedURL": true,
   "supportsSetTags": true,
   "supportsSubcategories": true,
   "supportsTorrentCreation": true,

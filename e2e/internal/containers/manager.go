@@ -14,14 +14,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/build"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -71,6 +70,29 @@ var portMutex sync.Mutex
 
 // usedPorts tracks ports that have been allocated to avoid duplicates
 var usedPorts = make(map[int]bool)
+
+// quiImageName stores the pre-built qui image name from warmup
+var quiImageName string
+var quiImageMutex sync.RWMutex
+
+// containerSem limits concurrent container startups to avoid overwhelming Docker
+var containerSem chan struct{}
+var containerSemOnce sync.Once
+
+// getContainerSem returns a semaphore that limits concurrent container startups.
+// Default is 4 concurrent startups, configurable via QUI_E2E_MAX_PARALLEL env var.
+func getContainerSem() chan struct{} {
+	containerSemOnce.Do(func() {
+		maxParallel := 4
+		if env := os.Getenv("QUI_E2E_MAX_PARALLEL"); env != "" {
+			if n, err := strconv.Atoi(env); err == nil && n > 0 {
+				maxParallel = n
+			}
+		}
+		containerSem = make(chan struct{}, maxParallel)
+	})
+	return containerSem
+}
 
 // TestEnv holds all containers for a test run.
 type TestEnv struct {
@@ -137,15 +159,6 @@ func Warmup(ctx context.Context, quiSourcePath string) error {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	platform := "linux/" + runtime.GOARCH
-	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
-	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
-
-	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
-		return fmt.Errorf("failed to create e2e Dockerfile: %w", err)
-	}
-	defer os.Remove(e2eDockerfilePath)
-
 	// Create a temporary network for the warmup containers
 	net, err := network.New(ctx)
 	if err != nil {
@@ -153,8 +166,26 @@ func Warmup(ctx context.Context, quiSourcePath string) error {
 	}
 	defer net.Remove(ctx)
 
-	// Build qui image and pull qBittorrent image in parallel
-	quiReq := quiRequest(absPath, platform, net.Name, 3*time.Minute)
+	// Build qui image with a fixed tag so tests can reuse it
+	// Uses the permanent Dockerfile.e2e which doesn't require BuildKit
+	imageRepo := "qui-e2e"
+	imageTag := "test"
+	quiReq := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:       absPath,
+			Dockerfile:    "distrib/docker/Dockerfile.e2e",
+			PrintBuildLog: true,
+			KeepImage:     true,
+			Repo:          imageRepo,
+			Tag:           imageTag,
+		},
+		ExposedPorts: []string{"7476/tcp"},
+		Networks:     []string{net.Name},
+		Cmd:          []string{"serve"},
+		WaitingFor: wait.ForHTTP("/health").
+			WithPort("7476").
+			WithStartupTimeout(3 * time.Minute),
+	}
 	qbitReq := testcontainers.ContainerRequest{
 		Image:      qbitImage,
 		WaitingFor: wait.ForLog("[ls.io-init] done.").WithStartupTimeout(3 * time.Minute),
@@ -167,6 +198,11 @@ func Warmup(ctx context.Context, quiSourcePath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to warmup containers: %w", err)
 	}
+
+	// Store the built image name for tests to use
+	quiImageMutex.Lock()
+	quiImageName = imageRepo + ":" + imageTag
+	quiImageMutex.Unlock()
 
 	// Terminate both - we just needed to build/pull the images
 	for _, c := range containers {
@@ -194,23 +230,10 @@ func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceC
 	}
 	env.Network = net
 
-	// Prepare qui Dockerfile
-	absPath, err := filepath.Abs(cfg.QuiSourcePath)
-	if err != nil {
-		t.Fatalf("failed to get absolute path: %v", err)
-	}
-	platform := "linux/" + runtime.GOARCH
-	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
-	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
-	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
-		t.Fatalf("failed to create e2e Dockerfile: %v", err)
-	}
-	defer os.Remove(e2eDockerfilePath)
-
 	// Start qui container first (can run in parallel with qBittorrent startup)
 	t.Logf("Starting %d qBittorrent instances + qui...", instanceCount)
 
-	quiReq := quiRequest(absPath, platform, net.Name, cfg.Timeout)
+	quiReq := quiRequest(net.Name, cfg.Timeout)
 	quiContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: quiReq,
 		Started:          true,
@@ -220,7 +243,7 @@ func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceC
 	}
 	env.Qui = quiContainer
 
-	quiPort, err := env.Qui.MappedPort(ctx, "7476")
+	quiPort, err := getMappedPortWithRetry(ctx, env.Qui, "7476", 10)
 	if err != nil {
 		t.Fatalf("failed to get qui port: %v", err)
 	}
@@ -254,12 +277,8 @@ func SetupMultiInstance(ctx context.Context, t *testing.T, cfg Config, instanceC
 		}
 		inst.Container = container
 
-		// Get external URL
-		qbitPort, err := inst.Container.MappedPort(ctx, nat.Port(webUIPortStr+"/tcp"))
-		if err != nil {
-			t.Fatalf("failed to get qbittorrent port for instance %d: %v", i, err)
-		}
-		inst.ExtURL = "http://localhost:" + qbitPort.Port()
+		// Get external URL - we use fixed port binding, so we know the host port
+		inst.ExtURL = "http://localhost:" + webUIPortStr
 
 		// Extract password
 		inst.Password, err = extractQBitPasswordShared(ctx, inst.Container)
@@ -336,6 +355,11 @@ func Setup(ctx context.Context, t *testing.T, cfg Config) *TestEnv {
 func SetupShared(ctx context.Context, cfg Config) (*TestEnv, error) {
 	env := &TestEnv{}
 
+	// Acquire semaphore to limit concurrent container startups
+	sem := getContainerSem()
+	sem <- struct{}{}
+	defer func() { <-sem }()
+
 	// Log which qBittorrent image we're using (useful for version matrix testing)
 	fmt.Printf("Using qBittorrent image: %s\n", getQBitImage())
 
@@ -346,47 +370,37 @@ func SetupShared(ctx context.Context, cfg Config) (*TestEnv, error) {
 	}
 	env.Network = net
 
-	// Prepare qui Dockerfile (must be done before building request)
-	absPath, err := filepath.Abs(cfg.QuiSourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path: %w", err)
-	}
-	platform := "linux/" + runtime.GOARCH
-	dockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile")
-	e2eDockerfilePath := filepath.Join(absPath, "distrib/docker/Dockerfile.e2e")
-	if err := createE2EDockerfile(dockerfilePath, e2eDockerfilePath, platform); err != nil {
-		return nil, fmt.Errorf("failed to create e2e Dockerfile: %w", err)
-	}
-	// Note: caller should clean up e2eDockerfilePath if needed
-	defer os.Remove(e2eDockerfilePath)
-
 	// Generate random ports for this test instance to allow parallel execution
 	webUIPort := randomPortInRange(minRandomPort, maxRandomPort)
 	torrentPort := randomPortInRange(minRandomPort, maxRandomPort)
 
 	// Build container requests
 	qbitReq := qbittorrentRequest(net.Name, cfg.Timeout, webUIPort, torrentPort)
-	quiReq := quiRequest(absPath, platform, net.Name, cfg.Timeout)
+	quiReq := quiRequest(net.Name, cfg.Timeout)
 
-	// Start both containers in parallel
-	containers, err := testcontainers.ParallelContainers(ctx, []testcontainers.GenericContainerRequest{
-		{ContainerRequest: qbitReq, Started: true},
-		{ContainerRequest: quiReq, Started: true},
-	}, testcontainers.ParallelContainersOptions{})
+	// Start containers sequentially to avoid overwhelming Docker
+	qbitContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: qbitReq,
+		Started:          true,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to start containers: %w", err)
+		return nil, fmt.Errorf("failed to start qbittorrent container: %w", err)
 	}
+	env.QBittorrent = qbitContainer
 
-	env.QBittorrent = containers[0]
-	env.Qui = containers[1]
+	quiContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: quiReq,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to start qui container: %w", err)
+	}
+	env.Qui = quiContainer
 
 	// Setup qBittorrent (extract password, configure settings)
+	// We use fixed port binding, so we already know the host port
 	webUIPortStr := strconv.Itoa(webUIPort)
-	qbitPort, err := env.QBittorrent.MappedPort(ctx, nat.Port(webUIPortStr+"/tcp"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get qbittorrent port: %w", err)
-	}
-	env.QBitExtURL = "http://localhost:" + qbitPort.Port()
+	env.QBitExtURL = "http://localhost:" + webUIPortStr
 
 	env.QBitPassword, err = extractQBitPasswordShared(ctx, env.QBittorrent)
 	if err != nil {
@@ -406,7 +420,7 @@ func SetupShared(ctx context.Context, cfg Config) (*TestEnv, error) {
 	env.QBitURL = fmt.Sprintf("http://%s:%s", qbitIP, webUIPortStr)
 
 	// Setup qui URL
-	quiPort, err := env.Qui.MappedPort(ctx, "7476")
+	quiPort, err := getMappedPortWithRetry(ctx, env.Qui, "7476", 10)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get qui port: %w", err)
 	}
@@ -435,21 +449,18 @@ func (e *TestEnv) Teardown(ctx context.Context) {
 }
 
 // quiRequest returns a container request for qui.
-// Caller must create the Dockerfile.e2e file before calling this.
-func quiRequest(absPath, platform, networkName string, timeout time.Duration) testcontainers.ContainerRequest {
+// Uses the pre-built image from warmup if available, otherwise builds from source.
+func quiRequest(networkName string, timeout time.Duration) testcontainers.ContainerRequest {
+	quiImageMutex.RLock()
+	imageName := quiImageName
+	quiImageMutex.RUnlock()
+
+	if imageName == "" {
+		panic("quiRequest called before Warmup - no pre-built image available")
+	}
+
 	return testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    absPath,
-			Dockerfile: "distrib/docker/Dockerfile.e2e",
-			BuildArgs: map[string]*string{
-				"VERSION": ptr("e2e-test"),
-			},
-			PrintBuildLog: true,
-			KeepImage:     true, // Reuse built image across test runs
-			BuildOptionsModifier: func(opts *build.ImageBuildOptions) {
-				opts.Platform = platform
-			},
-		},
+		Image:        imageName,
 		ExposedPorts: []string{"7476/tcp"},
 		Networks:     []string{networkName},
 		NetworkAliases: map[string][]string{
@@ -462,32 +473,22 @@ func quiRequest(absPath, platform, networkName string, timeout time.Duration) te
 	}
 }
 
-// createE2EDockerfile creates a modified Dockerfile for e2e tests.
-// It replaces $BUILDPLATFORM with an explicit platform value since
-// testcontainers doesn't use BuildKit which auto-sets that variable.
-func createE2EDockerfile(srcPath, dstPath, platform string) error {
-	content, err := os.ReadFile(srcPath)
-	if err != nil {
-		return fmt.Errorf("read dockerfile: %w", err)
+// getMappedPortWithRetry retries getting a mapped port up to maxRetries times.
+// This handles race conditions where port mappings aren't immediately available
+// after ParallelContainers returns.
+func getMappedPortWithRetry(ctx context.Context, container testcontainers.Container, port nat.Port, maxRetries int) (nat.Port, error) {
+	var lastErr error
+	for i := range maxRetries {
+		mappedPort, err := container.MappedPort(ctx, port)
+		if err == nil {
+			return mappedPort, nil
+		}
+		lastErr = err
+		if i < maxRetries-1 {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-
-	// Replace FROM --platform=$BUILDPLATFORM with explicit platform
-	modified := strings.Replace(
-		string(content),
-		"FROM --platform=$BUILDPLATFORM",
-		"FROM --platform="+platform,
-		1,
-	)
-
-	if err := os.WriteFile(dstPath, []byte(modified), 0o600); err != nil {
-		return fmt.Errorf("write dockerfile: %w", err)
-	}
-
-	return nil
-}
-
-func ptr(s string) *string {
-	return &s
+	return "", fmt.Errorf("failed to get mapped port after %d retries: %w", maxRetries, lastErr)
 }
 
 // findAvailablePort finds an available TCP port.
@@ -542,6 +543,10 @@ func qbittorrentRequest(networkName string, timeout time.Duration, webUIPort, to
 	webUIPortStr := strconv.Itoa(webUIPort)
 	torrentPortStr := strconv.Itoa(torrentPort)
 
+	webUIContainerPort := nat.Port(webUIPortStr + "/tcp")
+	torrentTCPPort := nat.Port(torrentPortStr + "/tcp")
+	torrentUDPPort := nat.Port(torrentPortStr + "/udp")
+
 	return testcontainers.ContainerRequest{
 		Image: getQBitImage(),
 		Env: map[string]string{
@@ -552,13 +557,21 @@ func qbittorrentRequest(networkName string, timeout time.Duration, webUIPort, to
 			"TORRENTING_PORT": torrentPortStr,
 		},
 		ExposedPorts: []string{
-			webUIPortStr + ":" + webUIPortStr + "/tcp",       // Fixed mapping with random port
-			torrentPortStr + ":" + torrentPortStr + "/tcp",   // Fixed mapping with random port
-			torrentPortStr + ":" + torrentPortStr + "/udp",   // Fixed mapping with random port
+			webUIPortStr + "/tcp",
+			torrentPortStr + "/tcp",
+			torrentPortStr + "/udp",
 		},
 		Networks: []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {"qbittorrent"},
+		},
+		// Use HostConfigModifier to bind container ports to specific host ports
+		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.PortBindings = nat.PortMap{
+				webUIContainerPort: []nat.PortBinding{{HostIP: "", HostPort: webUIPortStr}},
+				torrentTCPPort:     []nat.PortBinding{{HostIP: "", HostPort: torrentPortStr}},
+				torrentUDPPort:     []nat.PortBinding{{HostIP: "", HostPort: torrentPortStr}},
+			}
 		},
 		// Wait for linuxserver init to complete - works across all versions
 		// After this log, the WebUI port is open and ready
