@@ -18,7 +18,7 @@ INTERNAL_WEB_DIR = internal/web
 # Go build flags with Polar credentials
 LDFLAGS = -ldflags "-X github.com/autobrr/qui/internal/buildinfo.Version=$(VERSION) -X main.PolarOrgID=$(POLAR_ORG_ID)"
 
-.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-openapi test-e2e test-e2e-instances test-e2e-torrents test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
+.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-openapi test-e2e test-e2e-instances test-e2e-torrents test-e2e-download test-e2e-scale test-e2e-full test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
 
 # Default target
 all: build
@@ -122,14 +122,29 @@ test-e2e-torrents:
 	@echo "Running e2e torrent tests..."
 	cd e2e && go test -v -count=1 -run TestTorrent ./tests/...
 
+# Run e2e download tests (requires build tag)
+test-e2e-download:
+	@echo "Running e2e download tests..."
+	cd e2e && go test -v -count=1 -tags=download ./tests/...
+
+# Run e2e scale tests (requires build tag)
+test-e2e-scale:
+	@echo "Running e2e scale tests..."
+	cd e2e && go test -v -count=1 -tags=scale ./tests/...
+
+# Run all e2e tests including download and scale (all build tags)
+test-e2e-full:
+	@echo "Running full e2e test suite..."
+	cd e2e && go test -v -count=1 -tags=download,scale ./tests/...
+
 # Clean up e2e test containers
 test-e2e-clean:
 	@echo "Cleaning up e2e test containers..."
 	docker rm -f $$(docker ps -aq --filter "label=org.testcontainers=true") 2>/dev/null || true
 	docker network prune -f
 
-# Run all tests (unit + e2e)
-test-all: test test-e2e
+# Run all tests (unit + e2e including download and scale)
+test-all: test test-e2e-full
 
 # Format changed code only (fast, for iteration)
 fmt:
@@ -206,11 +221,14 @@ help:
 	@echo "Testing:"
 	@echo "  make test           - Run unit tests with race detection"
 	@echo "  make test-openapi   - Validate OpenAPI specification"
-	@echo "  make test-e2e       - Run e2e tests against real torrent clients"
+	@echo "  make test-e2e       - Run e2e tests (basic, no build tags)"
 	@echo "  make test-e2e-instances - Run e2e instance tests only"
 	@echo "  make test-e2e-torrents  - Run e2e torrent tests only"
+	@echo "  make test-e2e-download  - Run e2e download tests (slow)"
+	@echo "  make test-e2e-scale     - Run e2e scale tests (slow)"
+	@echo "  make test-e2e-full      - Run all e2e tests (download + scale)"
 	@echo "  make test-e2e-clean - Clean up e2e test containers"
-	@echo "  make test-all       - Run all tests (unit + e2e)"
+	@echo "  make test-all       - Run all tests (unit + full e2e)"
 	@echo ""
 	@echo "Linting:"
 	@echo "  make lint           - Lint changed files only (fast, for iteration)"
