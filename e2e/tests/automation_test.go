@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/autobrr/qui/e2e/internal/client"
 	"github.com/autobrr/qui/e2e/internal/containers"
