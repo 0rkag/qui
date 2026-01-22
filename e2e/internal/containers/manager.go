@@ -318,18 +318,13 @@ func (e *TestEnv) Client() *client.Client {
 
 // Config for test environment.
 type Config struct {
-	QuiImage      string        // Image name if not building from source
-	BuildQui      bool          // Build qui from source instead of using image
-	QuiSourcePath string        // Path to qui source (if BuildQui=true)
-	Timeout       time.Duration // Container startup timeout
+	Timeout time.Duration // Container startup timeout
 }
 
 // DefaultConfig returns sensible defaults for local development.
 func DefaultConfig() Config {
 	return Config{
-		BuildQui:      true,
-		QuiSourcePath: "../..", // Relative to e2e directory
-		Timeout:       3 * time.Minute,
+		Timeout: 3 * time.Minute,
 	}
 }
 
@@ -491,21 +486,7 @@ func getMappedPortWithRetry(ctx context.Context, container testcontainers.Contai
 	return "", fmt.Errorf("failed to get mapped port after %d retries: %w", maxRetries, lastErr)
 }
 
-// findAvailablePort finds an available TCP port.
-func findAvailablePort() (int, error) {
-	// Use port 0 to let the OS assign an available port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port, nil
-}
-
-// randomPortInRange returns a random port in the given range.
-// randomPortInRange returns a random unused port in the given range.
-// Thread-safe for parallel test execution.
-// isPortAvailable checks if a TCP port is available on the host
+// isPortAvailable checks if a TCP port is available on the host.
 func isPortAvailable(port int) bool {
 	addr := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", addr)
@@ -516,11 +497,13 @@ func isPortAvailable(port int) bool {
 	return true
 }
 
+// randomPortInRange returns a random unused port in the given range.
+// Thread-safe for parallel test execution.
 func randomPortInRange(min, max int) int {
 	portMutex.Lock()
 	defer portMutex.Unlock()
 
-	for attempts := 0; attempts < 1000; attempts++ {
+	for range 1000 {
 		port := min + rand.IntN(max-min+1)
 		if !usedPorts[port] && isPortAvailable(port) {
 			usedPorts[port] = true
@@ -579,17 +562,6 @@ func qbittorrentRequest(networkName string, timeout time.Duration, webUIPort, to
 	}
 }
 
-// extractQBitPassword extracts the temp password from qBittorrent container logs.
-func extractQBitPassword(ctx context.Context, t *testing.T, container testcontainers.Container) string {
-	t.Helper()
-
-	password, err := extractQBitPasswordShared(ctx, container)
-	if err != nil {
-		t.Fatalf("failed to extract qbittorrent password: %v", err)
-	}
-	return password
-}
-
 // extractQBitPasswordShared extracts the temp password without requiring testing.T.
 // For qBittorrent 4.6+, extracts from logs. For older versions, returns default "adminadmin".
 func extractQBitPasswordShared(ctx context.Context, container testcontainers.Container) (string, error) {
@@ -614,12 +586,6 @@ func extractQBitPasswordShared(ctx context.Context, container testcontainers.Con
 	}
 
 	return string(matches[1]), nil
-}
-
-// configureQBittorrent sets up qBittorrent for e2e testing via API.
-func configureQBittorrent(ctx context.Context, t *testing.T, baseURL, password string) error {
-	t.Helper()
-	return configureQBittorrentShared(ctx, baseURL, password)
 }
 
 // configureQBittorrentShared sets up qBittorrent for e2e testing via API:
@@ -714,17 +680,6 @@ func configureQBittorrentShared(ctx context.Context, baseURL, password string) e
 	}
 
 	return nil
-}
-
-// configureQui creates the initial admin user and returns an authenticated client.
-func configureQui(ctx context.Context, t *testing.T, baseURL, username, password string) *client.Client {
-	t.Helper()
-
-	c, err := configureQuiShared(ctx, baseURL, username, password)
-	if err != nil {
-		t.Fatalf("failed to configure qui: %v", err)
-	}
-	return c
 }
 
 // configureQuiShared creates the initial admin user without requiring testing.T.
