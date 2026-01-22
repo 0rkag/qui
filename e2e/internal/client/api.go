@@ -268,25 +268,25 @@ func (c *Client) AddTorrent(t *testing.T, instanceID int, torrentData []byte, op
 
 	// Add torrent file
 	part, err := writer.CreateFormFile("torrents", "test.torrent")
-	require(t, err)
+	requireNoError(t, err)
 	_, err = part.Write(torrentData)
-	require(t, err)
+	requireNoError(t, err)
 
 	// Add options
 	if opts.SavePath != "" {
-		require(t, writer.WriteField("savepath", opts.SavePath))
+		requireNoError(t, writer.WriteField("savepath", opts.SavePath))
 	}
 	if opts.Category != "" {
-		require(t, writer.WriteField("category", opts.Category))
+		requireNoError(t, writer.WriteField("category", opts.Category))
 	}
 	if opts.Paused {
-		require(t, writer.WriteField("paused", "true"))
+		requireNoError(t, writer.WriteField("paused", "true"))
 	}
 	for _, tag := range opts.Tags {
-		require(t, writer.WriteField("tags", tag))
+		requireNoError(t, writer.WriteField("tags", tag))
 	}
 
-	require(t, writer.Close())
+	requireNoError(t, writer.Close())
 
 	url := fmt.Sprintf("/api/instances/%d/torrents", instanceID)
 	req := c.newRequest(t, "POST", url, &buf)
@@ -324,23 +324,23 @@ func (c *Client) AddTorrentFromMagnet(t *testing.T, instanceID int, magnet strin
 	writer := multipart.NewWriter(&buf)
 
 	// Add magnet URL
-	require(t, writer.WriteField("urls", magnet))
+	requireNoError(t, writer.WriteField("urls", magnet))
 
 	// Add options
 	if opts.SavePath != "" {
-		require(t, writer.WriteField("savepath", opts.SavePath))
+		requireNoError(t, writer.WriteField("savepath", opts.SavePath))
 	}
 	if opts.Category != "" {
-		require(t, writer.WriteField("category", opts.Category))
+		requireNoError(t, writer.WriteField("category", opts.Category))
 	}
 	if opts.Paused {
-		require(t, writer.WriteField("paused", "true"))
+		requireNoError(t, writer.WriteField("paused", "true"))
 	}
 	if len(opts.Tags) > 0 {
-		require(t, writer.WriteField("tags", strings.Join(opts.Tags, ",")))
+		requireNoError(t, writer.WriteField("tags", strings.Join(opts.Tags, ",")))
 	}
 
-	require(t, writer.Close())
+	requireNoError(t, writer.Close())
 
 	url := fmt.Sprintf("/api/instances/%d/torrents", instanceID)
 	req := c.newRequest(t, "POST", url, &buf)
@@ -396,7 +396,7 @@ func (c *Client) AddTorrentFromFile(t *testing.T, instanceID int, filePath strin
 
 	// Read torrent file
 	torrentData, err := os.ReadFile(filePath)
-	require(t, err)
+	requireNoError(t, err)
 
 	// Build multipart form
 	var buf bytes.Buffer
@@ -404,25 +404,25 @@ func (c *Client) AddTorrentFromFile(t *testing.T, instanceID int, filePath strin
 
 	// Add torrent file (API expects field name "torrent")
 	part, err := writer.CreateFormFile("torrent", filepath.Base(filePath))
-	require(t, err)
+	requireNoError(t, err)
 	_, err = part.Write(torrentData)
-	require(t, err)
+	requireNoError(t, err)
 
 	// Add options
 	if opts.SavePath != "" {
-		require(t, writer.WriteField("savepath", opts.SavePath))
+		requireNoError(t, writer.WriteField("savepath", opts.SavePath))
 	}
 	if opts.Category != "" {
-		require(t, writer.WriteField("category", opts.Category))
+		requireNoError(t, writer.WriteField("category", opts.Category))
 	}
 	if opts.Paused {
-		require(t, writer.WriteField("paused", "true"))
+		requireNoError(t, writer.WriteField("paused", "true"))
 	}
 	for _, tag := range opts.Tags {
-		require(t, writer.WriteField("tags", tag))
+		requireNoError(t, writer.WriteField("tags", tag))
 	}
 
-	require(t, writer.Close())
+	requireNoError(t, writer.Close())
 
 	url := fmt.Sprintf("/api/instances/%d/torrents", instanceID)
 	req := c.newRequest(t, "POST", url, &buf)
@@ -822,7 +822,7 @@ func (c *Client) ListCrossInstanceTorrents(t *testing.T, expr string) CrossInsta
 	// Build filter JSON and URL encode it
 	filters := map[string]string{"expr": expr}
 	filtersJSON, err := json.Marshal(filters)
-	require(t, err)
+	requireNoError(t, err)
 
 	// URL encode the JSON
 	encodedFilters := url.QueryEscape(string(filtersJSON))
@@ -849,7 +849,7 @@ func (c *Client) GetRaw(t *testing.T, path string) []byte {
 	requireStatus(t, resp, http.StatusOK)
 
 	data, err := io.ReadAll(resp.Body)
-	require(t, err)
+	requireNoError(t, err)
 	return data
 }
 
@@ -865,7 +865,7 @@ func (c *Client) post(t *testing.T, path string, body any) *http.Response {
 	t.Helper()
 
 	jsonBody, err := json.Marshal(body)
-	require(t, err)
+	requireNoError(t, err)
 
 	req := c.newRequest(t, "POST", path, bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -876,7 +876,7 @@ func (c *Client) put(t *testing.T, path string, body any) *http.Response {
 	t.Helper()
 
 	jsonBody, err := json.Marshal(body)
-	require(t, err)
+	requireNoError(t, err)
 
 	req := c.newRequest(t, "PUT", path, bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -893,7 +893,7 @@ func (c *Client) deleteWithBody(t *testing.T, path string, body any) *http.Respo
 	t.Helper()
 
 	jsonBody, err := json.Marshal(body)
-	require(t, err)
+	requireNoError(t, err)
 
 	req := c.newRequest(t, "DELETE", path, bytes.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -905,7 +905,7 @@ func (c *Client) newRequest(t *testing.T, method, path string, body io.Reader) *
 
 	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(context.Background(), method, url, body)
-	require(t, err)
+	requireNoError(t, err)
 
 	// Add session cookies
 	for _, cookie := range c.cookies {
@@ -919,7 +919,7 @@ func (c *Client) do(t *testing.T, req *http.Request) *http.Response {
 	t.Helper()
 
 	resp, err := c.httpClient.Do(req)
-	require(t, err)
+	requireNoError(t, err)
 
 	return resp
 }
@@ -941,7 +941,7 @@ func decodeJSON(t *testing.T, r io.Reader, v any) {
 	}
 }
 
-func require(t *testing.T, err error) {
+func requireNoError(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)

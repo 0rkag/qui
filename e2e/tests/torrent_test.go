@@ -12,9 +12,6 @@ import (
 	"github.com/autobrr/qui/e2e/internal/containers"
 )
 
-// Well-known public domain torrent (Big Buck Bunny)
-const testMagnet = "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337"
-
 func TestTorrentCRUD(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test")
@@ -285,17 +282,4 @@ func TestTorrentDetails(t *testing.T) {
 	})
 }
 
-// waitForInstance waits for an instance to be connected and ready.
-func waitForInstance(t *testing.T, c *client.Client, instanceID int) {
-	t.Helper()
-
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		_, err := c.TryGetCapabilities(t, instanceID)
-		if err == nil {
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Fatalf("instance %d did not become ready within timeout", instanceID)
-}
+// testMagnet, waitForInstance, and validAutomationPayload are defined in helpers_test.go

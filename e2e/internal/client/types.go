@@ -117,7 +117,7 @@ type TorrentProperties struct {
 	Comment    string `json:"comment"`
 	CreatedBy  string `json:"created_by"`
 	IsPrivate  bool   `json:"isPrivate"`
-	HasMetdata bool   `json:"has_metadata,omitempty"`
+	HasMetadata bool `json:"has_metadata,omitempty"`
 }
 
 // Tracker represents a torrent tracker.

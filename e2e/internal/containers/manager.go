@@ -279,9 +279,21 @@ func Setup(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *En
 
 	wg.Wait()
 
-	// Check for startup errors
+	// Check for startup errors - clean up any started containers on failure
 	for i, err := range errors {
 		if err != nil {
+			// Clean up containers that did start before failing
+			for _, inst := range env.Instances {
+				if inst != nil && inst.Container != nil {
+					_ = inst.Container.Terminate(ctx)
+				}
+			}
+			if env.Qui != nil {
+				_ = env.Qui.Terminate(ctx)
+			}
+			if env.Network != nil {
+				_ = env.Network.Remove(ctx)
+			}
 			if i == 0 {
 				t.Fatalf("failed to start qui container: %v", err)
 			}
@@ -384,6 +396,7 @@ func isPortAvailable(port int) bool {
 
 // randomPortInRange returns a random unused port in the given range.
 // Thread-safe for parallel test execution.
+// Panics if no available port can be found after 1000 attempts.
 func randomPortInRange(min, max int) int {
 	portMutex.Lock()
 	defer portMutex.Unlock()
@@ -395,8 +408,8 @@ func randomPortInRange(min, max int) int {
 			return port
 		}
 	}
-	// Fallback: return a random port anyway (very unlikely to reach here)
-	return min + rand.IntN(max-min+1)
+	// No available port found - this indicates port exhaustion
+	panic(fmt.Sprintf("failed to find available port in range %d-%d after 1000 attempts", min, max))
 }
 
 // qbittorrentRequest returns a container request for qBittorrent.

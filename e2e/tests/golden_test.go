@@ -116,4 +116,4 @@ func TestGoldenNormalization(t *testing.T) {
 	})
 }
 
-// waitForInstance and testMagnet are defined in torrent_test.go
+// waitForInstance, testMagnet, and validAutomationPayload are defined in helpers_test.go

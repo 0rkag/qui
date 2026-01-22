@@ -12,25 +12,7 @@ import (
 	"github.com/autobrr/qui/e2e/internal/containers"
 )
 
-// Helper to create a minimal valid automation payload
-func validAutomationPayload(name string) client.AutomationPayload {
-	enabled := true
-	return client.AutomationPayload{
-		Name:           name,
-		TrackerPattern: "*", // Apply to all trackers
-		Enabled:        &enabled,
-		Conditions: map[string]interface{}{
-			"pause": map[string]interface{}{
-				"enabled": true,
-				"condition": map[string]interface{}{
-					"field":    "STATE",
-					"operator": "EQUALS",
-					"value":    "downloading",
-				},
-			},
-		},
-	}
-}
+// validAutomationPayload is defined in helpers_test.go
 
 func TestAutomationCRUD(t *testing.T) {
 	if testing.Short() {

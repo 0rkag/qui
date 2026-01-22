@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -154,7 +155,11 @@ func TestMultiInstanceConcurrentOps(t *testing.T) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					errA = r.(error)
+					if err, ok := r.(error); ok {
+						errA = err
+					} else {
+						errA = fmt.Errorf("panic: %v", r)
+					}
 				}
 			}()
 			hashA = c.AddTorrentFromMagnet(t, instA.ID, testMagnet, client.AddTorrentOptions{Paused: true})
@@ -165,7 +170,11 @@ func TestMultiInstanceConcurrentOps(t *testing.T) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					errB = r.(error)
+					if err, ok := r.(error); ok {
+						errB = err
+					} else {
+						errB = fmt.Errorf("panic: %v", r)
+					}
 				}
 			}()
 			hashB = c.AddTorrentFromMagnet(t, instB.ID, testMagnet, client.AddTorrentOptions{Paused: true})

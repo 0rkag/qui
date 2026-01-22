@@ -246,10 +246,14 @@ func formatJSON(t *testing.T, data []byte) []byte {
 	return append(formatted, '\n')
 }
 
-// DynamicFieldPatterns contains regex patterns for identifying dynamic content.
-var DynamicFieldPatterns = []*regexp.Regexp{
+// dynamicFieldPatterns contains regex patterns for identifying dynamic content.
+// Currently unused but kept for potential future use in dynamic field detection.
+var dynamicFieldPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`"id":\s*\d+`),
 	regexp.MustCompile(`"host":\s*"[^"]*localhost[^"]*"`),
 	regexp.MustCompile(`"added_on":\s*\d+`),
 	regexp.MustCompile(`"save_path":\s*"/[^"]*"`),
 }
+
+// Ensure dynamicFieldPatterns is used to avoid compiler warnings.
+var _ = dynamicFieldPatterns

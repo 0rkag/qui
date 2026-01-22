@@ -92,17 +92,22 @@ Tests are organized using Go build tags to allow selective execution:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUI_E2E_QBIT_IMAGE` | `ghcr.io/hotio/qbittorrent:release-5.0.2` | qBittorrent Docker image |
+| `QUI_E2E_QBIT_IMAGE` | `linuxserver/qbittorrent:5.1.4` | qBittorrent Docker image |
 | `QUI_E2E_SCALE_INSTANCES` | `10` | Number of instances for scale tests |
 
 ### Testing Different qBittorrent Versions
 
-```bash
-# Test against qBittorrent 4.6.7
-QUI_E2E_QBIT_IMAGE=ghcr.io/hotio/qbittorrent:release-4.6.7 make test-e2e
+The test framework supports short version names that map to full image paths:
 
-# Test against qBittorrent 5.1.4
-QUI_E2E_QBIT_IMAGE=ghcr.io/hotio/qbittorrent:release-5.1.4 make test-e2e
+```bash
+# Using short names (recommended)
+QUI_E2E_QBIT_IMAGE=4.6.7 make test-e2e
+QUI_E2E_QBIT_IMAGE=5.0.2 make test-e2e
+QUI_E2E_QBIT_IMAGE=5.1.4-libtorrentv1 make test-e2e
+
+# Using full image names
+QUI_E2E_QBIT_IMAGE=linuxserver/qbittorrent:4.6.7 make test-e2e
+QUI_E2E_QBIT_IMAGE=linuxserver/qbittorrent:5.0.2 make test-e2e
 ```
 
 ## Test Data
@@ -125,14 +130,20 @@ These are public domain/Creative Commons torrents from WebTorrent for testing pu
 ```
 e2e/
 ├── internal/
+│   ├── assert/        # Custom assertion helpers
+│   │   ├── eventually.go  # Eventually/Never polling assertions
+│   │   └── golden/        # Golden file testing utilities
+│   │       └── golden.go
 │   ├── client/        # qui API client for tests
 │   │   ├── api.go     # API methods
+│   │   ├── options.go # List/filter options
 │   │   └── types.go   # Request/response types
 │   └── containers/    # Docker container management
 │       └── manager.go # testcontainers-go setup
 ├── golden/            # Golden files for API response testing
 ├── testdata/          # Test fixtures
 └── tests/             # Test files
+    └── helpers_test.go  # Shared test helpers (testMagnet, waitForInstance, etc.)
 ```
 
 ### Container Management
