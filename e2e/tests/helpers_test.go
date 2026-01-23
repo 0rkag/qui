@@ -33,13 +33,13 @@ func validAutomationPayload(name string) client.AutomationPayload {
 		Name:           name,
 		TrackerPattern: "*", // Apply to all trackers
 		Enabled:        &enabled,
-		Conditions: map[string]interface{}{
-			"pause": map[string]interface{}{
-				"enabled": true,
-				"condition": map[string]interface{}{
-					"field":    "STATE",
-					"operator": "EQUALS",
-					"value":    "downloading",
+		Conditions: &client.ActionConditions{
+			Pause: &client.PauseAction{
+				Enabled: true,
+				Condition: &client.RuleCondition{
+					Field:    "STATE",
+					Operator: "EQUALS",
+					Value:    "downloading",
 				},
 			},
 		},

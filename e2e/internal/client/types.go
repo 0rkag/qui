@@ -148,28 +148,102 @@ type TorrentFile struct {
 
 // Automation represents an automation rule.
 type Automation struct {
-	ID              int                    `json:"id"`
-	InstanceID      int                    `json:"instanceId"`
-	Name            string                 `json:"name"`
-	TrackerPattern  string                 `json:"trackerPattern"`
-	TrackerDomains  []string               `json:"trackerDomains,omitempty"`
-	Enabled         bool                   `json:"enabled"`
-	SortOrder       int                    `json:"sortOrder"`
-	IntervalSeconds *int                   `json:"intervalSeconds,omitempty"`
-	Conditions      map[string]interface{} `json:"conditions"`
-	CreatedAt       string                 `json:"createdAt,omitempty"`
-	UpdatedAt       string                 `json:"updatedAt,omitempty"`
+	ID              int               `json:"id"`
+	InstanceID      int               `json:"instanceId"`
+	Name            string            `json:"name"`
+	TrackerPattern  string            `json:"trackerPattern"`
+	TrackerDomains  []string          `json:"trackerDomains,omitempty"`
+	Enabled         bool              `json:"enabled"`
+	SortOrder       int               `json:"sortOrder"`
+	IntervalSeconds *int              `json:"intervalSeconds,omitempty"`
+	Conditions      *ActionConditions `json:"conditions"`
+	CreatedAt       string            `json:"createdAt,omitempty"`
+	UpdatedAt       string            `json:"updatedAt,omitempty"`
 }
 
 // AutomationPayload is the request body for creating/updating automations.
 type AutomationPayload struct {
-	Name            string                 `json:"name"`
-	TrackerPattern  string                 `json:"trackerPattern,omitempty"`
-	TrackerDomains  []string               `json:"trackerDomains,omitempty"`
-	Enabled         *bool                  `json:"enabled,omitempty"`
-	SortOrder       *int                   `json:"sortOrder,omitempty"`
-	IntervalSeconds *int                   `json:"intervalSeconds,omitempty"`
-	Conditions      map[string]interface{} `json:"conditions"`
+	Name            string            `json:"name"`
+	TrackerPattern  string            `json:"trackerPattern,omitempty"`
+	TrackerDomains  []string          `json:"trackerDomains,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
+	SortOrder       *int              `json:"sortOrder,omitempty"`
+	IntervalSeconds *int              `json:"intervalSeconds,omitempty"`
+	Conditions      *ActionConditions `json:"conditions"`
+}
+
+// ActionConditions holds all the action configurations for an automation.
+type ActionConditions struct {
+	SchemaVersion string             `json:"schemaVersion,omitempty"`
+	SpeedLimits   *SpeedLimitAction  `json:"speedLimits,omitempty"`
+	ShareLimits   *ShareLimitsAction `json:"shareLimits,omitempty"`
+	Pause         *PauseAction       `json:"pause,omitempty"`
+	Delete        *DeleteAction      `json:"delete,omitempty"`
+	Tag           *TagAction         `json:"tag,omitempty"`
+	Category      *CategoryAction    `json:"category,omitempty"`
+}
+
+// SpeedLimitAction configures speed limit application.
+type SpeedLimitAction struct {
+	Enabled     bool           `json:"enabled"`
+	UploadKiB   *int64         `json:"uploadKiB,omitempty"`
+	DownloadKiB *int64         `json:"downloadKiB,omitempty"`
+	Condition   *RuleCondition `json:"condition,omitempty"`
+}
+
+// ShareLimitsAction configures share limit application.
+type ShareLimitsAction struct {
+	Enabled            bool           `json:"enabled"`
+	RatioLimit         *float64       `json:"ratioLimit,omitempty"`
+	SeedingTimeMinutes *int64         `json:"seedingTimeMinutes,omitempty"`
+	Condition          *RuleCondition `json:"condition,omitempty"`
+}
+
+// PauseAction configures pause action.
+type PauseAction struct {
+	Enabled   bool           `json:"enabled"`
+	Condition *RuleCondition `json:"condition,omitempty"`
+}
+
+// DeleteAction configures delete action.
+type DeleteAction struct {
+	Enabled          bool           `json:"enabled"`
+	Mode             string         `json:"mode,omitempty"` // "delete", "deleteWithFiles", etc.
+	IncludeHardlinks bool           `json:"includeHardlinks,omitempty"`
+	Condition        *RuleCondition `json:"condition,omitempty"`
+}
+
+// TagAction configures tagging action.
+type TagAction struct {
+	Enabled         bool           `json:"enabled"`
+	Tags            []string       `json:"tags,omitempty"`
+	Mode            string         `json:"mode,omitempty"` // "full", "add", "remove"
+	UseTrackerAsTag bool           `json:"useTrackerAsTag,omitempty"`
+	UseDisplayName  bool           `json:"useDisplayName,omitempty"`
+	Condition       *RuleCondition `json:"condition,omitempty"`
+}
+
+// CategoryAction configures category assignment.
+type CategoryAction struct {
+	Enabled                      bool           `json:"enabled"`
+	Category                     string         `json:"category,omitempty"`
+	IncludeCrossSeeds            bool           `json:"includeCrossSeeds,omitempty"`
+	BlockIfCrossSeedInCategories []string       `json:"blockIfCrossSeedInCategories,omitempty"`
+	Condition                    *RuleCondition `json:"condition,omitempty"`
+}
+
+// RuleCondition represents a condition in an automation rule.
+// For group conditions (AND/OR), set Operator to "AND" or "OR" and provide child Conditions.
+// For leaf conditions, set Field, Operator, and Value.
+type RuleCondition struct {
+	Field      string           `json:"field,omitempty"`
+	Operator   string           `json:"operator,omitempty"` // For leaf: EQUALS, MATCHES, etc. For group: AND, OR
+	Value      string           `json:"value,omitempty"`
+	MinValue   *float64         `json:"minValue,omitempty"`
+	MaxValue   *float64         `json:"maxValue,omitempty"`
+	Regex      bool             `json:"regex,omitempty"`
+	Negate     bool             `json:"negate,omitempty"`
+	Conditions []*RuleCondition `json:"conditions,omitempty"`
 }
 
 // AutomationActivity represents a logged automation action.
