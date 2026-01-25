@@ -927,6 +927,28 @@ func (c *Client) ApplyAutomations(t *testing.T, instanceID int) {
 	requireStatus(t, resp, http.StatusAccepted)
 }
 
+// PreviewAutomation previews which torrents would match the given automation rule.
+// The payload must have either delete or category action enabled for preview.
+func (c *Client) PreviewAutomation(t *testing.T, instanceID int, payload AutomationPayload) PreviewResult {
+	t.Helper()
+
+	url := fmt.Sprintf("/api/instances/%d/automations/preview", instanceID)
+	resp := c.post(t, url, payload)
+	defer resp.Body.Close()
+
+	requireStatus(t, resp, http.StatusOK)
+
+	var result PreviewResult
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// PreviewAutomationRaw previews automations and returns the raw response for error testing.
+func (c *Client) PreviewAutomationRaw(t *testing.T, instanceID int, payload AutomationPayload) *http.Response {
+	t.Helper()
+	return c.post(t, fmt.Sprintf("/api/instances/%d/automations/preview", instanceID), payload)
+}
+
 // ValidateRegex validates regex patterns in automation conditions.
 func (c *Client) ValidateRegex(t *testing.T, instanceID int, payload AutomationPayload) RegexValidationResult {
 	t.Helper()

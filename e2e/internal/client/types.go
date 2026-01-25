@@ -1,5 +1,7 @@
 package client
 
+import "encoding/json"
+
 // InstanceConfig is the request body for creating/updating instances.
 type InstanceConfig struct {
 	Name          string  `json:"name"`
@@ -248,15 +250,18 @@ type RuleCondition struct {
 
 // AutomationActivity represents a logged automation action.
 type AutomationActivity struct {
-	ID             int    `json:"id"`
-	InstanceID     int    `json:"instanceId"`
-	AutomationID   int    `json:"automationId"`
-	AutomationName string `json:"automationName"`
-	TorrentHash    string `json:"torrentHash"`
-	TorrentName    string `json:"torrentName"`
-	Action         string `json:"action"`
-	Details        string `json:"details,omitempty"`
-	CreatedAt      string `json:"createdAt"`
+	ID            int             `json:"id"`
+	InstanceID    int             `json:"instanceId"`
+	Hash          string          `json:"hash"`
+	TorrentName   string          `json:"torrentName,omitempty"`
+	TrackerDomain string          `json:"trackerDomain,omitempty"`
+	Action        string          `json:"action"`
+	RuleID        *int            `json:"ruleId,omitempty"`
+	RuleName      string          `json:"ruleName,omitempty"`
+	Outcome       string          `json:"outcome"`
+	Reason        string          `json:"reason,omitempty"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	CreatedAt     string          `json:"createdAt"`
 }
 
 // RegexValidationResult is the response from ValidateRegex.
@@ -272,4 +277,42 @@ type RegexValidationError struct {
 	Pattern  string `json:"pattern"`
 	Field    string `json:"field"`
 	Operator string `json:"operator"`
+}
+
+// PreviewResult contains torrents that would match an automation rule.
+type PreviewResult struct {
+	TotalMatches   int              `json:"totalMatches"`
+	CrossSeedCount int              `json:"crossSeedCount,omitempty"`
+	Examples       []PreviewTorrent `json:"examples"`
+}
+
+// PreviewTorrent is a simplified torrent for preview display.
+type PreviewTorrent struct {
+	Name           string  `json:"name"`
+	Hash           string  `json:"hash"`
+	Size           int64   `json:"size"`
+	Ratio          float64 `json:"ratio"`
+	SeedingTime    int64   `json:"seedingTime"`
+	Tracker        string  `json:"tracker"`
+	Category       string  `json:"category"`
+	Tags           string  `json:"tags"`
+	State          string  `json:"state"`
+	AddedOn        int64   `json:"addedOn"`
+	Uploaded       int64   `json:"uploaded"`
+	Downloaded     int64   `json:"downloaded"`
+	ContentPath    string  `json:"contentPath,omitempty"`
+	IsUnregistered bool    `json:"isUnregistered,omitempty"`
+	IsCrossSeed    bool    `json:"isCrossSeed,omitempty"`
+	IsHardlinkCopy bool    `json:"isHardlinkCopy,omitempty"`
+	NumSeeds       int64   `json:"numSeeds"`
+	NumComplete    int64   `json:"numComplete"`
+	NumLeechs      int64   `json:"numLeechs"`
+	NumIncomplete  int64   `json:"numIncomplete"`
+	Progress       float64 `json:"progress"`
+	Availability   float64 `json:"availability"`
+	TimeActive     int64   `json:"timeActive"`
+	LastActivity   int64   `json:"lastActivity"`
+	CompletionOn   int64   `json:"completionOn"`
+	TotalSize      int64   `json:"totalSize"`
+	HardlinkScope  string  `json:"hardlinkScope,omitempty"`
 }
