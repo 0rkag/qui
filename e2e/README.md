@@ -1,186 +1,45 @@
 # End-to-End Tests
 
-This directory contains end-to-end tests for qui that run against real qBittorrent instances using Docker containers via testcontainers-go.
+E2E tests validate qui against real qBittorrent instances running in Docker containers via testcontainers-go.
 
-## Prerequisites
-
-- Go 1.21+
-- Docker running locally
-- Network access to pull Docker images
-
-## Running Tests
-
-### Basic Tests (No Build Tags)
+## Quick Start
 
 ```bash
-# Run all basic e2e tests
+# Prerequisites: Go 1.25+, Docker running
+
+# Run core tests (~5 min)
 make test-e2e
 
-# Run specific test groups
-make test-e2e-instances    # Instance management tests
-make test-e2e-torrents     # Torrent operations tests
-```
-
-### Download Tests
-
-Download tests actually download torrents and verify progress, completion, and file state. They require the `download` build tag and take longer to run.
-
-```bash
-make test-e2e-download
-
-# Or directly:
-cd e2e && go test -v -count=1 -tags=download ./tests/...
-```
-
-### Scale Tests
-
-Scale tests verify qui can handle many qBittorrent instances concurrently. They require the `scale` build tag.
-
-```bash
-make test-e2e-scale
-
-# With custom instance count (default: 10):
-QUI_E2E_SCALE_INSTANCES=50 make test-e2e-scale
-```
-
-### Full Test Suite
-
-Run all tests including download and scale tests:
-
-```bash
+# Run full suite including downloads and scale tests (~10 min)
 make test-e2e-full
 
-# Or directly:
-cd e2e && go test -v -count=1 -tags=download,scale ./tests/...
+# Clean up containers after a failed run
+make test-e2e-clean
 ```
 
-### All Tests (Unit + E2E)
+First run builds a Docker image from source and pulls qBittorrent — if it times out:
 
 ```bash
-make test-all
+QUI_E2E_WARMUP_TIMEOUT=10 make test-e2e
 ```
 
-## Test Organization
+## Documentation
 
-### Build Tags
+For full documentation see the [Development > Testing](../documentation/docs/development/testing.md) section:
 
-Tests are organized using Go build tags to allow selective execution:
+- **[Testing Guide](../documentation/docs/development/testing.md)** — When to run tests, make targets, env vars, troubleshooting, coverage
+- **[E2E Architecture](../documentation/docs/development/e2e/architecture.md)** — Component architecture and design decisions
+- **[Writing E2E Tests](../documentation/docs/development/e2e/writing-tests.md)** — Annotated example and contributor checklist
 
-| Tag | Tests | Description |
-|-----|-------|-------------|
-| (none) | Basic tests | Instance, torrent, category, tag, golden file tests |
-| `download` | Download tests | Actually download torrents, verify progress/completion |
-| `scale` | Scale tests | Test with many instances (default 10, configurable) |
-
-### Test Files
-
-| File | Description |
-|------|-------------|
-| `instance_test.go` | Instance CRUD, connection lifecycle |
-| `torrent_test.go` | Torrent add/remove, pause/resume, magnet links |
-| `torrent_download_test.go` | Download verification (requires `download` tag) |
-| `category_tag_test.go` | Category and tag management |
-| `automation_test.go` | Automation CRUD, validation |
-| `multi_instance_test.go` | Cross-instance operations |
-| `scale_test.go` | Scale testing (requires `scale` tag) |
-| `golden_test.go` | API response golden file tests |
-| `main_test.go` | Shared test setup |
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `QUI_E2E_QBIT_IMAGE` | `linuxserver/qbittorrent:5.1.4` | qBittorrent Docker image |
-| `QUI_E2E_SCALE_INSTANCES` | `10` | Number of instances for scale tests |
-
-### Testing Different qBittorrent Versions
-
-The test framework supports short version names that map to full image paths:
-
-```bash
-# Using short names (recommended)
-QUI_E2E_QBIT_IMAGE=4.6.7 make test-e2e
-QUI_E2E_QBIT_IMAGE=5.0.2 make test-e2e
-QUI_E2E_QBIT_IMAGE=5.1.4-libtorrentv1 make test-e2e
-
-# Using full image names
-QUI_E2E_QBIT_IMAGE=linuxserver/qbittorrent:4.6.7 make test-e2e
-QUI_E2E_QBIT_IMAGE=linuxserver/qbittorrent:5.0.2 make test-e2e
-```
-
-## Test Data
-
-Test data files are located in `testdata/`:
-
-```
-testdata/
-└── torrents/          # .torrent files for download tests
-    ├── wired-cd.torrent
-    ├── sintel.torrent
-    ├── big-buck-bunny.torrent
-    └── README.md      # Attribution info
-```
-
-These are public domain/Creative Commons torrents from WebTorrent for testing purposes.
-
-## Architecture
+## Directory Structure
 
 ```
 e2e/
 ├── internal/
 │   ├── assert/        # Custom assertion helpers
-│   │   ├── eventually.go  # Eventually/Never polling assertions
-│   │   └── golden/        # Golden file testing utilities
-│   │       └── golden.go
 │   ├── client/        # qui API client for tests
-│   │   ├── api.go     # API methods
-│   │   ├── options.go # List/filter options
-│   │   └── types.go   # Request/response types
 │   └── containers/    # Docker container management
-│       └── manager.go # testcontainers-go setup
 ├── golden/            # Golden files for API response testing
-├── testdata/          # Test fixtures
+├── testdata/          # Test fixtures (.torrent files)
 └── tests/             # Test files
-    └── helpers_test.go  # Shared test helpers (testMagnet, waitForInstance, etc.)
 ```
-
-### Container Management
-
-Tests use testcontainers-go to:
-1. Start qBittorrent containers with proper configuration
-2. Start a qui instance connected to those containers
-3. Provide clients for API interaction
-4. Clean up containers after tests
-
-Containers are configured with:
-- tmpfs mount for `/downloads` (avoids permission issues)
-- Exposed ports for WebUI access
-- Auto-generated admin password
-
-## Cleanup
-
-If tests fail and leave containers running:
-
-```bash
-make test-e2e-clean
-```
-
-This removes all testcontainers and prunes Docker networks.
-
-## Writing New Tests
-
-1. Add tests to existing `*_test.go` files or create new ones
-2. Use build tags if tests are slow or resource-intensive:
-   ```go
-   //go:build download
-
-   package tests
-   ```
-3. Use the provided helpers:
-   - `containers.Setup()` - Start containers
-   - `env.Client()` - Get API client
-   - `waitForInstance()` - Wait for instance to connect
-4. Always cleanup in tests using `t.Cleanup()`
-5. Use golden files for complex API response assertions
