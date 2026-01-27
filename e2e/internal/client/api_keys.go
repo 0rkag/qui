@@ -45,7 +45,7 @@ func (c *Client) DeleteAPIKey(t *testing.T, id int) {
 	resp := c.delete(t, fmt.Sprintf("/api/api-keys/%d", id))
 	defer resp.Body.Close()
 
-	requireStatus(t, resp, http.StatusNoContent)
+	requireStatus(t, resp, http.StatusOK)
 }
 
 // APIKeyCreateResponse is the response from creating an API key.

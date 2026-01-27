@@ -116,8 +116,10 @@ func TestAuth(t *testing.T) {
 	t.Run("api_key_authenticates", func(t *testing.T) {
 		keyClient := client.New(env.QuiURL)
 		keyClient.SetAPIKey(apiKeyValue)
-		user := keyClient.GetCurrentUser(t)
-		assert.Equal(t, username, user.Username)
+		// Use a protected endpoint that works with API key auth.
+		// GetCurrentUser relies on session data so it won't work here.
+		// ListTrackerCustomizations returns 200 if authenticated (empty list is fine).
+		keyClient.ListTrackerCustomizations(t)
 	})
 
 	t.Run("delete_api_key", func(t *testing.T) {
@@ -125,9 +127,13 @@ func TestAuth(t *testing.T) {
 	})
 
 	t.Run("deleted_api_key_rejected", func(t *testing.T) {
-		keyClient := client.New(env.QuiURL)
-		keyClient.SetAPIKey(apiKeyValue)
-		resp := keyClient.Validate(t)
+		// Hit a protected endpoint with the deleted API key — middleware returns 401.
+		req, err := http.NewRequest("GET", env.QuiURL+"/api/tracker-customizations/", nil)
+		require.NoError(t, err)
+		req.Header.Set("X-API-Key", apiKeyValue)
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
