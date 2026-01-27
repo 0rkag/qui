@@ -316,3 +316,52 @@ type PreviewTorrent struct {
 	TotalSize      int64   `json:"totalSize"`
 	HardlinkScope  string  `json:"hardlinkScope,omitempty"`
 }
+
+// ---- Log Exclusions ----
+
+// LogExclusions represents log exclusion patterns.
+type LogExclusions struct {
+	ID        int      `json:"id"`
+	Patterns  []string `json:"patterns"`
+	CreatedAt string   `json:"createdAt"`
+	UpdatedAt string   `json:"updatedAt"`
+}
+
+// ---- Client API Keys ----
+
+// ClientAPIKeyCreateResponse is the response from creating a client API key.
+type ClientAPIKeyCreateResponse struct {
+	Key          string       `json:"key"`
+	ClientAPIKey ClientAPIKey `json:"clientApiKey"`
+	ProxyURL     string       `json:"proxyUrl"`
+}
+
+// ClientAPIKey represents a client API key.
+type ClientAPIKey struct {
+	ID         int    `json:"id"`
+	ClientName string `json:"clientName"`
+	InstanceID int    `json:"instanceId"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// ClientAPIKeyWithInstance is a client API key enriched with instance info.
+type ClientAPIKeyWithInstance struct {
+	ClientAPIKey
+	Instance *Instance `json:"instance"`
+}
+
+// ---- Duplicate Check ----
+
+// DuplicateCheckResponse is the response from checking for duplicate torrents.
+type DuplicateCheckResponse struct {
+	Duplicates []DuplicateMatch `json:"duplicates"`
+}
+
+// DuplicateMatch represents a matched duplicate torrent.
+type DuplicateMatch struct {
+	Hash          string   `json:"hash"`
+	InfohashV1    string   `json:"infohashV1"`
+	InfohashV2    string   `json:"infohashV2"`
+	Name          string   `json:"name"`
+	MatchedHashes []string `json:"matchedHashes"`
+}

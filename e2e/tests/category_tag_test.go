@@ -50,6 +50,21 @@ func TestCategories(t *testing.T) {
 		assert.Equal(t, "/downloads/movies", categories["movies"].SavePath)
 	})
 
+	t.Run("edit_category", func(t *testing.T) {
+		c.CreateCategory(t, instanceID, "edit-test", "/downloads/edit-test")
+		t.Cleanup(func() { c.DeleteCategory(t, instanceID, "edit-test") })
+
+		time.Sleep(time.Second)
+
+		c.EditCategory(t, instanceID, "edit-test", "/new/save/path")
+
+		time.Sleep(time.Second)
+
+		cats := c.GetCategories(t, instanceID)
+		require.Contains(t, cats, "edit-test")
+		assert.Equal(t, "/new/save/path", cats["edit-test"].SavePath)
+	})
+
 	t.Run("set category on torrent", func(t *testing.T) {
 		// Create a category first
 		c.CreateCategory(t, instanceID, "tv-shows", "/downloads/tv")

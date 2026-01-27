@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -122,6 +123,26 @@ func TestTorrentCRUD(t *testing.T) {
 		})
 		assert.Empty(t, result.Torrents)
 	})
+
+	t.Run("check_duplicates_found", func(t *testing.T) {
+		torrentFile := testdataPath("torrents/sintel.torrent")
+		hash := c.AddTorrentFromFile(t, instanceID, torrentFile, client.AddTorrentOptions{
+			Paused: true,
+		})
+		t.Cleanup(func() { c.DeleteTorrent(t, instanceID, hash, true) })
+
+		time.Sleep(time.Second)
+
+		result := c.CheckDuplicates(t, instanceID, []string{hash})
+		require.Len(t, result.Duplicates, 1, "should find one duplicate")
+		assert.Equal(t, hash, result.Duplicates[0].Hash)
+	})
+
+	t.Run("check_duplicates_not_found", func(t *testing.T) {
+		fakeHash := "0000000000000000000000000000000000000000"
+		result := c.CheckDuplicates(t, instanceID, []string{fakeHash})
+		assert.Empty(t, result.Duplicates, "should not find duplicates for unknown hash")
+	})
 }
 
 func TestTorrentBulkActions(t *testing.T) {
@@ -227,6 +248,16 @@ func TestTorrentDetails(t *testing.T) {
 	// Wait for torrent to be fully indexed
 	time.Sleep(2 * time.Second)
 
+	// Add a second torrent from .torrent file for reliable metadata
+	// Use sintel.torrent (not big-buck-bunny) to avoid hash collision with the magnet above
+	torrentFile := testdataPath("torrents/sintel.torrent")
+	fileHash := c.AddTorrentFromFile(t, instanceID, torrentFile, client.AddTorrentOptions{
+		Paused: true,
+	})
+	t.Cleanup(func() { c.DeleteTorrent(t, instanceID, fileHash, true) })
+
+	time.Sleep(2 * time.Second)
+
 	t.Run("get torrent properties", func(t *testing.T) {
 		props := c.GetTorrentProperties(t, instanceID, hash)
 
@@ -280,6 +311,59 @@ func TestTorrentDetails(t *testing.T) {
 		// Don't fail if files is empty - metadata fetch may not have completed
 		t.Logf("Found %d files in torrent", len(files))
 	})
-}
 
-// testMagnet, waitForInstance, and validAutomationPayload are defined in helpers_test.go
+	t.Run("get_peers_paused", func(t *testing.T) {
+		resp := c.GetTorrentPeersRaw(t, instanceID, fileHash)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("get_webseeds", func(t *testing.T) {
+		resp := c.GetTorrentWebSeedsRaw(t, instanceID, fileHash)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("get_piece_states_paused", func(t *testing.T) {
+		pieces := c.GetTorrentPieceStates(t, instanceID, fileHash)
+		require.NotEmpty(t, pieces, "file-based torrent should have piece state data")
+		// All pieces should be 0 (not downloaded) for a paused torrent
+		for i, state := range pieces {
+			assert.Equal(t, 0, state, "piece %d should be 0 (not downloaded) for paused torrent", i)
+		}
+	})
+
+	t.Run("get_peers_active", func(t *testing.T) {
+		// Resume the torrent briefly to allow peer discovery
+		c.ResumeTorrents(t, instanceID, []string{fileHash})
+		time.Sleep(5 * time.Second)
+
+		resp := c.GetTorrentPeersRaw(t, instanceID, fileHash)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		t.Log("Active peer endpoint returned 200 OK")
+	})
+
+	t.Run("get_piece_states_active", func(t *testing.T) {
+		// Torrent was resumed in previous subtest
+		pieces := c.GetTorrentPieceStates(t, instanceID, fileHash)
+		require.NotEmpty(t, pieces, "should have piece state data")
+
+		// Verify all values are valid (0, 1, or 2)
+		for i, state := range pieces {
+			assert.True(t, state >= 0 && state <= 2,
+				"piece %d has invalid state %d (expected 0, 1, or 2)", i, state)
+		}
+
+		// Log how many pieces are in each state for visibility
+		counts := map[int]int{0: 0, 1: 0, 2: 0}
+		for _, s := range pieces {
+			counts[s]++
+		}
+		t.Logf("Piece states: %d not downloaded, %d downloading, %d downloaded (total: %d)",
+			counts[0], counts[1], counts[2], len(pieces))
+
+		// Re-pause for cleanup
+		c.PauseTorrents(t, instanceID, []string{fileHash})
+	})
+}

@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // AddTorrent adds a torrent from file data and returns the hash.
@@ -448,5 +451,148 @@ func (c *Client) RemoveTags(t *testing.T, instanceID int, hashes []string, tags 
 	resp := c.post(t, url, body)
 	defer resp.Body.Close()
 
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// ---- Tracker Operations ----
+
+// EditTorrentTracker edits a tracker URL on a torrent.
+func (c *Client) EditTorrentTracker(t *testing.T, instanceID int, hash, oldURL, newURL string) {
+	t.Helper()
+	body := map[string]string{"oldURL": oldURL, "newURL": newURL}
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/torrents/%s/trackers", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// AddTorrentTrackers adds tracker URLs to a torrent (newline-separated).
+func (c *Client) AddTorrentTrackers(t *testing.T, instanceID int, hash, urls string) {
+	t.Helper()
+	body := map[string]string{"urls": urls}
+	resp := c.post(t, fmt.Sprintf("/api/instances/%d/torrents/%s/trackers", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// RemoveTorrentTrackers removes tracker URLs from a torrent (newline-separated).
+func (c *Client) RemoveTorrentTrackers(t *testing.T, instanceID int, hash, urls string) {
+	t.Helper()
+	body := map[string]string{"urls": urls}
+	resp := c.deleteWithBody(t, fmt.Sprintf("/api/instances/%d/torrents/%s/trackers", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// GetActiveTrackers returns active tracker domains for an instance.
+// The API returns a map of domain -> example tracker URL.
+func (c *Client) GetActiveTrackers(t *testing.T, instanceID int) map[string]string {
+	t.Helper()
+	resp := c.get(t, fmt.Sprintf("/api/instances/%d/trackers", instanceID))
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+	var result map[string]string
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// ---- File Operations ----
+
+// SetTorrentFilePriority sets download priority for specific files.
+// Priority: 0=don't download, 1=normal, 6=high, 7=maximum.
+func (c *Client) SetTorrentFilePriority(t *testing.T, instanceID int, hash string, indices []int, priority int) {
+	t.Helper()
+	body := map[string]any{"indices": indices, "priority": priority}
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/torrents/%s/files", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusNoContent)
+}
+
+// ---- Rename Operations ----
+
+// RenameTorrent renames the display name of a torrent.
+func (c *Client) RenameTorrent(t *testing.T, instanceID int, hash, name string) {
+	t.Helper()
+	body := map[string]string{"name": name}
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/torrents/%s/rename", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// RenameTorrentFile renames a file within a torrent.
+func (c *Client) RenameTorrentFile(t *testing.T, instanceID int, hash, oldPath, newPath string) {
+	t.Helper()
+	body := map[string]string{"oldPath": oldPath, "newPath": newPath}
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/torrents/%s/rename-file", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// RenameTorrentFolder renames a folder within a torrent.
+func (c *Client) RenameTorrentFolder(t *testing.T, instanceID int, hash, oldPath, newPath string) {
+	t.Helper()
+	body := map[string]string{"oldPath": oldPath, "newPath": newPath}
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/torrents/%s/rename-folder", instanceID, hash), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+}
+
+// ---- Export ----
+
+// ExportTorrent exports the .torrent file and returns raw bytes.
+func (c *Client) ExportTorrent(t *testing.T, instanceID int, hash string) []byte {
+	t.Helper()
+	resp := c.get(t, fmt.Sprintf("/api/instances/%d/torrents/%s/export", instanceID, hash))
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return data
+}
+
+// ---- Read-Only Detail Endpoints ----
+
+// GetTorrentPeersRaw returns the raw HTTP response for torrent peers.
+func (c *Client) GetTorrentPeersRaw(t *testing.T, instanceID int, hash string) *http.Response {
+	t.Helper()
+	return c.get(t, fmt.Sprintf("/api/instances/%d/torrents/%s/peers", instanceID, hash))
+}
+
+// GetTorrentWebSeedsRaw returns the raw HTTP response for torrent web seeds.
+func (c *Client) GetTorrentWebSeedsRaw(t *testing.T, instanceID int, hash string) *http.Response {
+	t.Helper()
+	return c.get(t, fmt.Sprintf("/api/instances/%d/torrents/%s/webseeds", instanceID, hash))
+}
+
+// GetTorrentPieceStates returns piece states (0=not downloaded, 1=downloading, 2=downloaded).
+func (c *Client) GetTorrentPieceStates(t *testing.T, instanceID int, hash string) []int {
+	t.Helper()
+	resp := c.get(t, fmt.Sprintf("/api/instances/%d/torrents/%s/pieces", instanceID, hash))
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+	var result []int
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// ---- Duplicate Check & Category Edit ----
+
+// CheckDuplicates checks if provided hashes already exist as torrents.
+func (c *Client) CheckDuplicates(t *testing.T, instanceID int, hashes []string) DuplicateCheckResponse {
+	t.Helper()
+	body := map[string][]string{"hashes": hashes}
+	resp := c.post(t, fmt.Sprintf("/api/instances/%d/torrents/check-duplicates", instanceID), body)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+	var result DuplicateCheckResponse
+	decodeJSON(t, resp.Body, &result)
+	return result
+}
+
+// EditCategory edits an existing category's save path.
+func (c *Client) EditCategory(t *testing.T, instanceID int, name, savePath string) {
+	t.Helper()
+	body := map[string]string{"name": name, "savePath": savePath}
+	resp := c.put(t, fmt.Sprintf("/api/instances/%d/categories", instanceID), body)
+	defer resp.Body.Close()
 	requireStatus(t, resp, http.StatusOK)
 }

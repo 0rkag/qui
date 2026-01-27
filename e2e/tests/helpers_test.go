@@ -1,11 +1,20 @@
 package tests
 
 import (
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/autobrr/qui/e2e/internal/client"
 )
+
+// testdataPath returns the absolute path to a testdata file.
+func testdataPath(relativePath string) string {
+	_, filename, _, _ := runtime.Caller(0)
+	testDir := filepath.Dir(filename)
+	return filepath.Join(testDir, "..", "testdata", relativePath)
+}
 
 // testMagnet is a well-known public domain torrent (Big Buck Bunny) used across tests.
 const testMagnet = "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337"
