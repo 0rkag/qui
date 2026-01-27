@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,14 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Warmup: build qui Docker image before running parallel tests
-	// This prevents parallel build races that cause timeouts
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Warmup: build qui Docker image before running parallel tests.
+	// Default 5m is enough with cached Docker layers; increase via
+	// QUI_E2E_WARMUP_TIMEOUT for cold builds (e.g. first run).
+	warmupTimeout := 5 * time.Minute
+	if v, err := strconv.Atoi(os.Getenv("QUI_E2E_WARMUP_TIMEOUT")); err == nil && v > 0 {
+		warmupTimeout = time.Duration(v) * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), warmupTimeout)
 	defer cancel()
 
 	if err := containers.Warmup(ctx, "../.."); err != nil {
