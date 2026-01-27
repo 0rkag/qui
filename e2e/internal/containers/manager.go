@@ -342,7 +342,7 @@ func Setup(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *En
 		errors[0] = err
 	}()
 
-	// Start qBittorrent instances
+	// Start qBittorrent instances (with port-conflict retry)
 	for i := range instanceCount {
 		env.Instances[i] = &QBitInstance{}
 		wg.Add(1)
@@ -351,13 +351,41 @@ func Setup(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *En
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-				ContainerRequest: qbittorrentRequest(net.Name, cfg.Timeout, ports[idx].webUIPort, ports[idx].torrentPort),
-				Started:          true,
-			})
-			env.Instances[idx].Container = container
+			var c testcontainers.Container
+			var lastErr error
+
+			for attempt := range 3 {
+				if attempt > 0 {
+					// Re-allocate ports on retry
+					ports[idx] = instancePorts{
+						webUIPort:   randomPortInRange(minRandomPort, maxRandomPort),
+						torrentPort: randomPortInRange(minRandomPort, maxRandomPort),
+					}
+					t.Logf("Retrying qBittorrent instance %d with new ports (attempt %d)", idx, attempt+1)
+				}
+
+				c, lastErr = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+					ContainerRequest: qbittorrentRequest(net.Name, cfg.Timeout, ports[idx].webUIPort, ports[idx].torrentPort),
+					Started:          true,
+				})
+				if lastErr == nil {
+					break
+				}
+
+				// Clean up partially-created container before retry
+				if c != nil {
+					_ = c.Terminate(ctx)
+					c = nil
+				}
+
+				if !strings.Contains(lastErr.Error(), "address already in use") {
+					break // Non-port error, don't retry
+				}
+			}
+
+			env.Instances[idx].Container = c
 			env.Instances[idx].ExtURL = "http://localhost:" + strconv.Itoa(ports[idx].webUIPort)
-			errors[idx+1] = err
+			errors[idx+1] = lastErr
 		}(i)
 	}
 
