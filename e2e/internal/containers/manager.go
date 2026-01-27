@@ -199,7 +199,8 @@ func (e *Env) RegisterInstances(t *testing.T) {
 
 // Config for test environment.
 type Config struct {
-	Timeout time.Duration // Container startup timeout
+	Timeout      time.Duration // Container startup timeout
+	SkipQuiSetup bool          // Skip initial admin setup (auth test drives setup itself)
 }
 
 // DefaultConfig returns sensible defaults for local development.
@@ -391,9 +392,11 @@ func Setup(ctx context.Context, t *testing.T, cfg Config, instanceCount int) *En
 	}
 	env.QuiURL = "http://localhost:" + quiPort.Port()
 
-	env.quiClient, err = configureQuiShared(ctx, env.QuiURL, "admin", "adminadmin")
-	if err != nil {
-		t.Fatalf("failed to configure qui: %v", err)
+	if !cfg.SkipQuiSetup {
+		env.quiClient, err = configureQuiShared(ctx, env.QuiURL, "admin", "adminadmin")
+		if err != nil {
+			t.Fatalf("failed to configure qui: %v", err)
+		}
 	}
 
 	// Configure qBittorrent instances (but don't register with qui)
