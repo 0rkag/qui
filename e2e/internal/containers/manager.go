@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -75,6 +76,16 @@ var usedPorts = make(map[int]bool)
 var quiImageName string
 var quiImageMutex sync.RWMutex
 
+// Coverage collection support.
+// Set QUI_E2E_COVERAGE=1 to build and run the coverage-instrumented binary.
+// Coverage data is collected from each qui container via docker cp after graceful shutdown.
+var (
+	coverageEnabled = os.Getenv("QUI_E2E_COVERAGE") == "1"
+	coverageDir     string
+	coverageMutex   sync.Mutex // serializes docker cp to avoid filesystem races
+	projectRoot     string     // absolute path to the project root, set during Warmup
+)
+
 // QBitInstance holds info about a single qBittorrent instance.
 type QBitInstance struct {
 	ID        int                      // qui instance ID (assigned after registration)
@@ -100,9 +111,27 @@ func (e *Env) Client() *client.Client {
 }
 
 // Teardown stops and removes all containers.
+// When coverage is enabled, the qui container is stopped gracefully first
+// so coverage data flushes, then copied out via docker cp.
 func (e *Env) Teardown(ctx context.Context) {
+	var quiStopped bool
+	if coverageEnabled && e.Qui != nil {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Fprintf(os.Stderr, "coverage: panic during collection: %v\n", r)
+				}
+			}()
+			quiStopped = collectCoverage(ctx, e.Qui)
+		}()
+	}
 	if e.Qui != nil {
-		_ = e.Qui.Terminate(ctx)
+		if quiStopped {
+			// Already stopped by coverage collection, just remove the container
+			_ = exec.CommandContext(ctx, "docker", "rm", e.Qui.GetContainerID()).Run()
+		} else {
+			_ = e.Qui.Terminate(ctx)
+		}
 	}
 	for _, inst := range e.Instances {
 		if inst.Container != nil {
@@ -113,6 +142,46 @@ func (e *Env) Teardown(ctx context.Context) {
 		_ = e.Network.Remove(ctx)
 	}
 }
+
+// collectCoverage stops a qui container gracefully (flushing coverage data)
+// and copies the coverage files to the host via docker cp.
+// Returns true if the container was stopped successfully.
+func collectCoverage(ctx context.Context, c testcontainers.Container) bool {
+	containerID := c.GetContainerID()
+	if len(containerID) < 12 {
+		fmt.Fprintf(os.Stderr, "coverage: container has no valid ID, skipping\n")
+		return false
+	}
+	short := containerID[:12]
+
+	// Stop gracefully — clean shutdown writes coverage data via Go's atexit hook
+	timeout := 10 * time.Second
+	stopped := true
+	if err := c.Stop(ctx, &timeout); err != nil {
+		fmt.Fprintf(os.Stderr, "coverage: failed to stop container %s: %v\n", short, err)
+		stopped = false
+		// Continue — partial coverage data may still exist
+	}
+
+	// Serialize docker cp to avoid filesystem races in the shared coverage dir
+	coverageMutex.Lock()
+	defer coverageMutex.Unlock()
+
+	cmd := exec.CommandContext(ctx, "docker", "cp", containerID+":/tmp/covdata/.", coverageDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "coverage: failed to copy from container %s: %v: %s\n", short, err, out)
+	}
+	return stopped
+}
+
+// CoverageEnabled reports whether e2e coverage collection is active.
+func CoverageEnabled() bool { return coverageEnabled }
+
+// CoverageDir returns the host directory where coverage data is collected.
+func CoverageDir() string { return coverageDir }
+
+// ProjectRoot returns the absolute path to the project root, set during Warmup.
+func ProjectRoot() string { return projectRoot }
 
 // RegisterInstances registers all qBittorrent instances with qui.
 // Call this after Setup if you need instances to be registered.
@@ -149,6 +218,20 @@ func Warmup(ctx context.Context, quiSourcePath string) error {
 	absPath, err := filepath.Abs(quiSourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	projectRoot = absPath
+
+	// Set up coverage directory if coverage is enabled
+	if coverageEnabled {
+		coverageDir = filepath.Join(absPath, "e2e", "covdata")
+		// Clean and recreate to avoid stale data from previous runs
+		if err := os.RemoveAll(coverageDir); err != nil {
+			return fmt.Errorf("failed to clean coverage dir: %w", err)
+		}
+		if err := os.MkdirAll(coverageDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create coverage dir: %w", err)
+		}
+		fmt.Printf("Coverage collection enabled: %s\n", coverageDir)
 	}
 
 	// Create a temporary network for the warmup containers
@@ -351,7 +434,7 @@ func quiRequest(networkName string, timeout time.Duration) testcontainers.Contai
 		panic("quiRequest called before Warmup - no pre-built image available")
 	}
 
-	return testcontainers.ContainerRequest{
+	req := testcontainers.ContainerRequest{
 		Image:        imageName,
 		ExposedPorts: []string{"7476/tcp"},
 		Networks:     []string{networkName},
@@ -363,6 +446,13 @@ func quiRequest(networkName string, timeout time.Duration) testcontainers.Contai
 			WithPort("7476").
 			WithStartupTimeout(timeout),
 	}
+
+	if coverageEnabled {
+		req.Entrypoint = []string{"/usr/local/bin/qui-cover"}
+		req.Env = map[string]string{"GOCOVERDIR": "/tmp/covdata"}
+	}
+
+	return req
 }
 
 // getMappedPortWithRetry retries getting a mapped port up to maxRetries times.

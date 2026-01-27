@@ -72,5 +72,9 @@ torrentfiles/*
 analyses/*
 .envrc
 
+# E2E coverage artifacts
+e2e/covdata/
+e2e/coverage.out
+
 # Git worktrees
 .worktrees/

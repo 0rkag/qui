@@ -1,6 +1,7 @@
 # E2E Test Dockerfile
 # This is a simplified version of Dockerfile for e2e testing.
 # It removes BuildKit-specific features that don't work with testcontainers.
+# It also builds a coverage-instrumented binary (qui-cover) for code coverage collection.
 
 # Build stage
 FROM node:22.18-alpine AS frontend-builder
@@ -45,6 +46,11 @@ RUN CGO_ENABLED=0 go build \
     -ldflags "-s -w -X github.com/autobrr/qui/internal/buildinfo.Version=${VERSION}" \
     -o qui ./cmd/qui
 
+# Build coverage-instrumented binary for e2e coverage collection
+RUN CGO_ENABLED=0 go build -cover -coverpkg=github.com/autobrr/qui/... \
+    -ldflags "-s -w -X github.com/autobrr/qui/internal/buildinfo.Version=${VERSION}" \
+    -o qui-cover ./cmd/qui
+
 # Final stage
 FROM alpine:3.22
 
@@ -63,8 +69,12 @@ WORKDIR /config
 # Declare volume for persistent data
 VOLUME /config
 
-# Copy binary
+# Copy binaries (normal + coverage-instrumented)
 COPY --from=go-builder /app/qui /usr/local/bin/
+COPY --from=go-builder /app/qui-cover /usr/local/bin/
+
+# Coverage data directory (used when running qui-cover with GOCOVERDIR)
+RUN mkdir -p /tmp/covdata
 
 EXPOSE 7476
 

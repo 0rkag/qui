@@ -18,7 +18,7 @@ INTERNAL_WEB_DIR = internal/web
 # Go build flags with Polar credentials
 LDFLAGS = -ldflags "-X github.com/autobrr/qui/internal/buildinfo.Version=$(VERSION) -X main.PolarOrgID=$(POLAR_ORG_ID)"
 
-.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-openapi test-e2e test-e2e-instances test-e2e-torrents test-e2e-download test-e2e-scale test-e2e-full test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
+.PHONY: all build frontend backend dev dev-backend dev-frontend dev-expose clean test test-openapi test-e2e test-e2e-instances test-e2e-torrents test-e2e-download test-e2e-scale test-e2e-full test-e2e-coverage test-e2e-coverage-full test-e2e-clean test-all help themes-fetch themes-clean lint lint-full lint-json lint-fix fmt modern deps docs-dev docs-build
 
 # Default target
 all: build
@@ -137,6 +137,16 @@ test-e2e-full:
 	@echo "Running full e2e test suite..."
 	cd e2e && go test -v -count=1 -tags=download,scale ./tests/...
 
+# Run e2e tests with coverage collection (QUI_E2E_COVERAGE=1)
+test-e2e-coverage:
+	@echo "Running e2e tests with coverage..."
+	cd e2e && QUI_E2E_COVERAGE=1 go test -v -count=1 ./tests/...
+
+# Run full e2e test suite with coverage (all build tags + coverage)
+test-e2e-coverage-full:
+	@echo "Running full e2e test suite with coverage..."
+	cd e2e && QUI_E2E_COVERAGE=1 go test -v -count=1 -tags=download,scale ./tests/...
+
 # Clean up e2e test containers
 test-e2e-clean:
 	@echo "Cleaning up e2e test containers..."
@@ -227,6 +237,8 @@ help:
 	@echo "  make test-e2e-download  - Run e2e download tests (slow)"
 	@echo "  make test-e2e-scale     - Run e2e scale tests (slow)"
 	@echo "  make test-e2e-full      - Run all e2e tests (download + scale)"
+	@echo "  make test-e2e-coverage  - Run e2e tests with code coverage"
+	@echo "  make test-e2e-coverage-full - Run full e2e suite with coverage"
 	@echo "  make test-e2e-clean - Clean up e2e test containers"
 	@echo "  make test-all       - Run all tests (unit + full e2e)"
 	@echo ""
